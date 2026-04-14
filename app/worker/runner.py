@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from app.core.config import get_settings
 from app.infra.db import JobRepository, create_db_pool
@@ -20,7 +21,6 @@ async def run_worker() -> None:
     repository = JobRepository(pool, settings.processing_schema)
     processor = JobProcessor(
         repository=repository,
-        queue=queue,
         settings=settings,
     )
 
@@ -28,17 +28,16 @@ async def run_worker() -> None:
     try:
         while True:
             try:
-                promoted = await queue.promote_delayed(settings.queue_promote_batch_size)
-                if promoted:
-                    logger.info("promoted %s delayed jobs", promoted)
-
                 job_id = await queue.dequeue(settings.queue_pop_timeout_seconds)
                 if not job_id:
                     await asyncio.sleep(settings.worker_idle_sleep_seconds)
                     continue
 
                 logger.info("processing job_id=%s", job_id)
+                started = time.monotonic()
                 await processor.process_job(job_id)
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                logger.info("processed job_id=%s elapsed_ms=%s", job_id, elapsed_ms)
             except Exception:
                 logger.exception("worker loop error")
                 await asyncio.sleep(settings.worker_idle_sleep_seconds)

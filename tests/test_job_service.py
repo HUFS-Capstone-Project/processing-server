@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -44,46 +44,26 @@ class FakeQueue:
 class FakeRepository:
     def __init__(self) -> None:
         self._jobs_by_id: dict[UUID, JobRecord] = {}
-        self._jobs_by_idempotency: dict[str, JobRecord] = {}
 
     async def create_job(
         self,
         *,
         job_id: UUID,
+        room_id: UUID,
         source_url: str,
-        source_url_hash: str,
-        idempotency_key: str | None,
-        source: str | None,
-        room_id: str | None,
-        max_attempts: int,
-    ) -> tuple[JobRecord, bool]:
-        if idempotency_key and idempotency_key in self._jobs_by_idempotency:
-            return self._jobs_by_idempotency[idempotency_key], False
-
+    ) -> JobRecord:
         now = datetime.now(timezone.utc)
         job = JobRecord(
             job_id=job_id,
-            source_url=source_url,
-            source_url_hash=source_url_hash,
-            status=JobStatus.QUEUED,
-            attempt=0,
-            max_attempts=max_attempts,
-            idempotency_key=idempotency_key,
-            source=source,
             room_id=room_id,
-            error_code=None,
+            source_url=source_url,
+            status=JobStatus.QUEUED,
             error_message=None,
-            queued_at=now,
-            processing_started_at=None,
-            completed_at=None,
-            next_retry_at=None,
             created_at=now,
             updated_at=now,
         )
         self._jobs_by_id[job_id] = job
-        if idempotency_key:
-            self._jobs_by_idempotency[idempotency_key] = job
-        return job, True
+        return job
 
     async def get_job(self, job_id: UUID) -> JobRecord | None:
         return self._jobs_by_id.get(job_id)
@@ -95,52 +75,38 @@ class FakeRepository:
         job = self._jobs_by_id[job_id]
         self._jobs_by_id[job_id] = JobRecord(
             job_id=job.job_id,
-            source_url=job.source_url,
-            source_url_hash=job.source_url_hash,
-            status=JobStatus.FAILED,
-            attempt=job.attempt,
-            max_attempts=job.max_attempts,
-            idempotency_key=job.idempotency_key,
-            source=job.source,
             room_id=job.room_id,
-            error_code="QUEUE_ENQUEUE_FAILED",
+            source_url=job.source_url,
+            status=JobStatus.FAILED,
             error_message=error_message,
-            queued_at=job.queued_at,
-            processing_started_at=job.processing_started_at,
-            completed_at=job.completed_at,
-            next_retry_at=job.next_retry_at,
             created_at=job.created_at,
             updated_at=job.updated_at,
         )
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
-def test_create_job_with_idempotency_reuses_job() -> None:
+def test_create_job_enqueues_once() -> None:
     repo = FakeRepository()
     queue = FakeQueue(enqueued=[])
-    service = JobService(repo, queue, max_attempts=3)
+    service = JobService(repo, queue)
 
     command = CreateJobCommand(
         url="https://www.instagram.com/reel/abcde/",
-        idempotency_key="idem-1",
-        source="web",
-        room_id="room-123",
+        room_id=uuid4(),
     )
 
-    first_job, first_created = _run(service.create_job(command))
-    second_job, second_created = _run(service.create_job(command))
+    job = _run(service.create_job(command))
 
-    assert first_created is True
-    assert second_created is False
-    assert first_job.job_id == second_job.job_id
-    assert queue.enqueued == [first_job.job_id]
+    assert queue.enqueued == [job.job_id]
+    assert job.room_id == command.room_id
+    assert job.status == JobStatus.QUEUED
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
 def test_create_job_rejects_invalid_url() -> None:
     repo = FakeRepository()
     queue = FakeQueue(enqueued=[])
-    service = JobService(repo, queue, max_attempts=3)
+    service = JobService(repo, queue)
 
     with pytest.raises(InvalidJobRequest):
-        _run(service.create_job(CreateJobCommand(url="ftp://invalid.example.com")))
+        _run(service.create_job(CreateJobCommand(url="ftp://invalid.example.com", room_id=uuid4())))

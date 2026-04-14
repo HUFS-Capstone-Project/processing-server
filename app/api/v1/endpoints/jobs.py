@@ -2,21 +2,27 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.security import require_internal_api_key
 from app.domain.job import CreateJobCommand, InvalidJobRequest, JobService, JobStatus
 from app.infra.db.repository import JobRepository
+from app.services.crawler.instagram_reel import is_instagram_media_url
 from app.schemas.jobs import (
     ApiErrorResponse,
     CreateJobRequest,
     CreateJobResponse,
     JobResultResponse,
     JobStatusResponse,
-    PlaceResponse,
 )
 
 router = APIRouter()
+
+
+def infer_source(source_url: str) -> str | None:
+    if is_instagram_media_url(source_url):
+        return "instagram"
+    return "web"
 
 
 def get_job_service(request: Request) -> JobService:
@@ -38,15 +44,12 @@ def get_job_repository(request: Request) -> JobRepository:
 )
 async def create_job(
     payload: CreateJobRequest,
-    response: Response,
     service: JobService = Depends(get_job_service),
 ) -> CreateJobResponse:
     try:
-        job, created = await service.create_job(
+        job = await service.create_job(
             CreateJobCommand(
                 url=str(payload.url),
-                idempotency_key=payload.idempotency_key,
-                source=payload.source,
                 room_id=payload.room_id,
             )
         )
@@ -56,14 +59,12 @@ async def create_job(
             detail={"code": "INVALID_URL", "message": str(exc)},
         ) from exc
 
-    if not created:
-        response.status_code = status.HTTP_200_OK
-
     return CreateJobResponse(
         job_id=job.job_id,
         status=job.status,
+        source_url=job.source_url,
+        source=infer_source(job.source_url),
         created_at=job.created_at,
-        idempotent_reused=not created,
     )
 
 
@@ -86,15 +87,13 @@ async def get_job_status(
 
     return JobStatusResponse(
         job_id=job.job_id,
+        room_id=job.room_id,
+        source_url=job.source_url,
+        source=infer_source(job.source_url),
         status=job.status,
-        attempt=job.attempt,
-        max_attempts=job.max_attempts,
-        error_code=job.error_code,
         error_message=job.error_message,
         created_at=job.created_at,
-        queued_at=job.queued_at,
-        processing_started_at=job.processing_started_at,
-        completed_at=job.completed_at,
+        updated_at=job.updated_at,
     )
 
 
@@ -124,30 +123,13 @@ async def get_job_result(
 
     result = await repository.get_job_result(jobId)
 
-    if job.status == JobStatus.FAILED:
-        return JobResultResponse(
-            job_id=job.job_id,
-            status=job.status,
-            caption=result.caption if result else None,
-            media_type=result.media_type if result else None,
-            instagram_meta=result.instagram_meta if result else None,
-            raw_candidates=result.raw_candidates if result else [],
-            places=[],
-            error_code=job.error_code,
-            error_message=job.error_message,
-            completed_at=job.completed_at,
-        )
-
-    places = [PlaceResponse(**place) for place in (result.places if result else [])]
     return JobResultResponse(
         job_id=job.job_id,
+        source_url=job.source_url,
+        source=infer_source(job.source_url),
         status=job.status,
         caption=result.caption if result else None,
-        media_type=result.media_type if result else None,
         instagram_meta=result.instagram_meta if result else None,
-        raw_candidates=result.raw_candidates if result else [],
-        places=places,
-        error_code=job.error_code,
         error_message=job.error_message,
-        completed_at=job.completed_at,
+        updated_at=job.updated_at,
     )

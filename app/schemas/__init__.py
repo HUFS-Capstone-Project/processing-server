@@ -4,7 +4,6 @@ from app.schemas.jobs import (
     CreateJobResponse,
     JobResultResponse,
     JobStatusResponse,
-    PlaceResponse,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "CreateJobResponse",
     "JobResultResponse",
     "JobStatusResponse",
-    "PlaceResponse",
 ]

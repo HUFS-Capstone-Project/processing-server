@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlparse
@@ -14,13 +13,9 @@ class JobRepositoryPort(Protocol):
         self,
         *,
         job_id: UUID,
+        room_id: UUID,
         source_url: str,
-        source_url_hash: str,
-        idempotency_key: str | None,
-        source: str | None,
-        room_id: str | None,
-        max_attempts: int,
-    ) -> tuple[JobRecord, bool]: ...
+    ) -> JobRecord: ...
 
     async def get_job(self, job_id: UUID) -> JobRecord | None: ...
 
@@ -36,9 +31,7 @@ class JobQueuePort(Protocol):
 @dataclass(slots=True)
 class CreateJobCommand:
     url: str
-    idempotency_key: str | None = None
-    source: str | None = None
-    room_id: str | None = None
+    room_id: UUID
 
 
 class InvalidJobRequest(Exception):
@@ -50,37 +43,25 @@ class JobService:
         self,
         repository: JobRepositoryPort,
         queue: JobQueuePort,
-        *,
-        max_attempts: int,
     ) -> None:
         self._repository = repository
         self._queue = queue
-        self._max_attempts = max_attempts
 
-    async def create_job(self, command: CreateJobCommand) -> tuple[JobRecord, bool]:
+    async def create_job(self, command: CreateJobCommand) -> JobRecord:
         normalized_url = self._validate_url(command.url)
-        source_url_hash = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest()
-
-        job_id = uuid4()
-
-        job, created = await self._repository.create_job(
-            job_id=job_id,
-            source_url=normalized_url,
-            source_url_hash=source_url_hash,
-            idempotency_key=command.idempotency_key,
-            source=command.source,
+        job = await self._repository.create_job(
+            job_id=uuid4(),
             room_id=command.room_id,
-            max_attempts=self._max_attempts,
+            source_url=normalized_url,
         )
 
-        if created:
-            try:
-                await self._queue.enqueue(job.job_id)
-            except Exception as exc:
-                await self._repository.mark_job_enqueue_failed(job.job_id, str(exc))
-                raise
+        try:
+            await self._queue.enqueue(job.job_id)
+        except Exception as exc:
+            await self._repository.mark_job_enqueue_failed(job.job_id, str(exc))
+            raise
 
-        return job, created
+        return job
 
     async def get_job(self, job_id: UUID) -> JobRecord | None:
         return await self._repository.get_job(job_id)

@@ -17,20 +17,10 @@ class JobStatus(str, Enum):
 @dataclass(slots=True)
 class JobRecord:
     job_id: UUID
+    room_id: UUID
     source_url: str
-    source_url_hash: str
     status: JobStatus
-    attempt: int
-    max_attempts: int
-    idempotency_key: str | None
-    source: str | None
-    room_id: str | None
-    error_code: str | None
     error_message: str | None
-    queued_at: datetime | None
-    processing_started_at: datetime | None
-    completed_at: datetime | None
-    next_retry_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -38,12 +28,8 @@ class JobRecord:
 @dataclass(slots=True)
 class JobResultRecord:
     job_id: UUID
-    media_type: str | None
     caption: str | None
     instagram_meta: dict[str, Any] | None
-    raw_candidates: list[dict[str, Any]]
-    places: list[dict[str, Any]]
-    kakao_raw: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 

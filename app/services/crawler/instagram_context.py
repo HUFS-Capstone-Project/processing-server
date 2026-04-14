@@ -1,6 +1,6 @@
 """Instagram-specific Playwright BrowserContext and OG extraction scripts."""
 
-from playwright.sync_api import Browser, BrowserContext
+from playwright.async_api import Browser, BrowserContext
 
 from app.core.config import Settings
 
@@ -67,8 +67,8 @@ OG_EXTRACTION_JS = r"""
 """
 
 
-def new_instagram_browser_context(browser: Browser, settings: Settings) -> BrowserContext:
-    return browser.new_context(
+async def new_instagram_browser_context(browser: Browser, settings: Settings) -> BrowserContext:
+    return await browser.new_context(
         user_agent=settings.instagram_ua,
         locale=settings.instagram_locale,
     )

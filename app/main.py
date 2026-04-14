@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
     db_pool = await create_db_pool(settings)
     queue = RedisJobQueue.from_settings(settings)
     repository = JobRepository(db_pool, settings.processing_schema)
-    service = JobService(repository, queue, max_attempts=settings.worker_max_attempts)
+    service = JobService(repository, queue)
 
     app.state.db_pool = db_pool
     app.state.job_queue = queue
