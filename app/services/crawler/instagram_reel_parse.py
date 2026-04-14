@@ -1,4 +1,4 @@
-"""Instagram og 메타 한 덩어리 문자열 → 좋아요·댓글·유저·날짜·캡션 파싱."""
+"""Parse Instagram OG meta string into likes/comments/user/date/caption."""
 
 from __future__ import annotations
 

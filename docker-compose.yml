@@ -1,0 +1,13 @@
+﻿services:
+  udidura-processing-queue-redis:
+    image: redis:7-alpine
+    container_name: udidura-processing-queue-redis
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes:
+      - udidura_processing_queue_redis_data:/data
+
+volumes:
+  udidura_processing_queue_redis_data:

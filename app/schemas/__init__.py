@@ -1,13 +1,17 @@
-from app.schemas.analyze import (
-    AnalyzeRequest,
-    AnalyzeResponse,
-    InstagramOgMeta,
-    InstagramReelMeta,
+from app.schemas.jobs import (
+    ApiErrorResponse,
+    CreateJobRequest,
+    CreateJobResponse,
+    JobResultResponse,
+    JobStatusResponse,
+    PlaceResponse,
 )
 
 __all__ = [
-    "AnalyzeRequest",
-    "AnalyzeResponse",
-    "InstagramOgMeta",
-    "InstagramReelMeta",
+    "ApiErrorResponse",
+    "CreateJobRequest",
+    "CreateJobResponse",
+    "JobResultResponse",
+    "JobStatusResponse",
+    "PlaceResponse",
 ]

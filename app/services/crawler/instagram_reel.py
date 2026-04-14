@@ -1,4 +1,4 @@
-"""Instagram `/reel/`, `/p/` URL 판별 및 `media_type` 결정."""
+"""Helpers to classify Instagram reel/post URLs."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from urllib.parse import urlparse
 
 def _path_parts(url: str) -> list[str] | None:
     try:
-        u = urlparse(url)
-        host = (u.netloc or "").lower()
+        parsed = urlparse(url)
+        host = (parsed.netloc or "").lower()
         if "instagram.com" not in host:
             return None
-        return [p for p in (u.path or "").split("/") if p]
+        return [part for part in (parsed.path or "").split("/") if part]
     except Exception:
         return None
 

@@ -1,4 +1,6 @@
-"""Playwright로 페이지 fetch. Instagram은 og 문자열만, 그 외는 HTML+본문."""
+"""Playwright crawling entry points."""
+
+from __future__ import annotations
 
 import asyncio
 
@@ -15,9 +17,18 @@ from app.services.crawler.instagram_context import (
 from app.services.crawler.instagram_reel import is_instagram_media_url
 
 
-def _fetch_page_html_and_text_sync(url: str, timeout_ms: int) -> tuple[str | None, str]:
+def _browser_args(settings: Settings) -> list[str]:
+    args: list[str] = []
+    if settings.playwright_no_sandbox:
+        args.append("--no-sandbox")
+    if settings.playwright_disable_dev_shm_usage:
+        args.append("--disable-dev-shm-usage")
+    return args
+
+
+def _fetch_page_html_and_text_sync(url: str, timeout_ms: int, settings: Settings) -> tuple[str | None, str]:
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=_browser_args(settings))
         try:
             page = browser.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -39,8 +50,9 @@ def _fetch_instagram_og_caption_sync(
     og_wait_timeout_ms: int,
     settings: Settings,
 ) -> tuple[str | None, str]:
+    launch_args = _browser_args(settings) + list(INSTAGRAM_BROWSER_ARGS)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=list(INSTAGRAM_BROWSER_ARGS))
+        browser = p.chromium.launch(headless=True, args=launch_args)
         try:
             context = new_instagram_browser_context(browser, settings)
             page = context.new_page()
@@ -71,7 +83,7 @@ async def fetch_page_content(url: str, settings: Settings) -> tuple[str | None, 
             settings.instagram_og_wait_timeout_ms,
             settings,
         )
-    return await asyncio.to_thread(_fetch_page_html_and_text_sync, u, nav_ms)
+    return await asyncio.to_thread(_fetch_page_html_and_text_sync, u, nav_ms, settings)
 
 
 async def fetch_page_html_and_text(url: str, settings: Settings) -> tuple[str | None, str]:

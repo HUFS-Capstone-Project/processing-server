@@ -1,0 +1,76 @@
+services:
+  - type: pserv
+    name: processing-private-service
+    runtime: docker
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PROCESSING_SCHEMA
+        value: processing
+      - key: QUEUE_NAMESPACE
+        value: processing:jobs
+      - key: QUEUE_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: processing-queue
+          property: connectionString
+
+  - type: worker
+    name: processing-worker
+    runtime: docker
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m app.worker.runner
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: PROCESSING_SCHEMA
+        value: processing
+      - key: QUEUE_NAMESPACE
+        value: processing:jobs
+      - key: QUEUE_REDIS_URL
+        fromService:
+          type: keyvalue
+          name: processing-queue
+          property: connectionString
+      - key: QUEUE_POP_TIMEOUT_SECONDS
+        value: "5"
+      - key: QUEUE_PROMOTE_BATCH_SIZE
+        value: "50"
+      - key: WORKER_MAX_ATTEMPTS
+        value: "3"
+      - key: WORKER_RETRY_BASE_SECONDS
+        value: "10"
+      - key: WORKER_RETRY_MAX_SECONDS
+        value: "300"
+      - key: WORKER_IDLE_SLEEP_SECONDS
+        value: "1.0"
+      - key: CRAWLER_TIMEOUT
+        value: "30"
+      - key: INSTAGRAM_NAVIGATION_TIMEOUT
+        value: "30"
+      - key: INSTAGRAM_OG_WAIT_TIMEOUT_MS
+        value: "8000"
+      - key: PLAYWRIGHT_NO_SANDBOX
+        value: "true"
+      - key: PLAYWRIGHT_DISABLE_DEV_SHM_USAGE
+        value: "true"
+
+  - type: keyvalue
+    name: processing-queue
+    region: singapore
+    ipAllowList: []
