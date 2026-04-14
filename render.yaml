@@ -5,7 +5,6 @@ services:
     region: singapore
     dockerfilePath: ./Dockerfile
     dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /api/v1/health
     autoDeploy: true
     envVars:
       - key: ENVIRONMENT
