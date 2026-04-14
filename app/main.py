@@ -3,10 +3,9 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
-from app.core.config import get_settings, validate_production_cors, validate_production_internal_api_key
+from app.core.config import get_settings, validate_production_internal_api_key
 from app.domain.job import JobService
 from app.infra.db import JobRepository, create_db_pool
 from app.infra.queue import RedisJobQueue
@@ -35,7 +34,6 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     validate_production_internal_api_key(settings)
-    validate_production_cors(settings)
     openapi_enabled = settings.openapi_enabled
     application = FastAPI(
         title="processing-private-service",
@@ -49,16 +47,6 @@ def create_app() -> FastAPI:
             {"name": "health", "description": "Service health endpoints"},
             {"name": "jobs", "description": "Job lifecycle endpoints"},
         ],
-    )
-
-    raw = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-    use_all = len(raw) == 1 and raw[0] == "*"
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"] if use_all else raw,
-        allow_credentials=not use_all,
-        allow_methods=["*"],
-        allow_headers=["*"],
     )
 
     application.include_router(api_router, prefix="/api/v1")

@@ -13,8 +13,6 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
-      - key: CORS_ORIGINS
-        sync: false
       - key: PROCESSING_SCHEMA
         value: processing
       - key: QUEUE_NAMESPACE

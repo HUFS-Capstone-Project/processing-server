@@ -40,7 +40,6 @@ class Settings(BaseSettings):
 
     service_name: str = "processing-server"
     base_url: str = "http://127.0.0.1:8000"
-    cors_origins: str = "*"
 
     # Required for the FastAPI private API in production; omit on workers (queue consumers).
     internal_api_key: str = ""
@@ -122,18 +121,6 @@ class Settings(BaseSettings):
     @property
     def queue_processing_key(self) -> str:
         return f"{self.queue_namespace}:processing"
-
-
-def validate_production_cors(settings: Settings) -> None:
-    """Private HTTP API only: workers do not call this (they do not use CORS)."""
-    if not settings.is_production:
-        return
-    raw = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-    if not raw or (len(raw) == 1 and raw[0] == "*"):
-        raise ValueError(
-            "In production, set CORS_ORIGINS to explicit comma-separated origins "
-            "(wildcard is not allowed)."
-        )
 
 
 def validate_production_internal_api_key(settings: Settings) -> None:
