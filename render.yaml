@@ -59,9 +59,19 @@ services:
       - key: CRAWLER_TIMEOUT
         value: "30"
       - key: INSTAGRAM_NAVIGATION_TIMEOUT
-        value: "30"
+        value: "12"
       - key: INSTAGRAM_OG_WAIT_TIMEOUT_MS
-        value: "8000"
+        value: "3000"
+      - key: INSTAGRAM_BLOCK_RESOURCE_TYPES
+        value: "image,font,media"
+      - key: CRAWLER_BROWSER_REUSE_ENABLED
+        value: "true"
+      - key: CRAWLER_RECOVER_ON_BROWSER_CRASH
+        value: "true"
+      - key: CRAWLER_HARD_TIMEOUT_MARGIN_SECONDS
+        value: "5"
+      - key: WORKER_METRICS_LOG_INTERVAL_SECONDS
+        value: "60"
       - key: PLAYWRIGHT_NO_SANDBOX
         value: "true"
       - key: PLAYWRIGHT_DISABLE_DEV_SHM_USAGE

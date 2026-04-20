@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     worker_retry_base_seconds: int = 10
     worker_retry_max_seconds: int = 300
     worker_idle_sleep_seconds: float = 1.0
+    worker_metrics_log_interval_seconds: int = 60
 
     crawler_timeout: int = 30
 
@@ -67,8 +68,13 @@ class Settings(BaseSettings):
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
     instagram_locale: str = "ko-KR"
-    instagram_navigation_timeout: int = 30
-    instagram_og_wait_timeout_ms: int = 8000
+    instagram_navigation_timeout: int = 12
+    instagram_og_wait_timeout_ms: int = 3000
+    instagram_block_resource_types: str = "image,font,media"
+
+    crawler_browser_reuse_enabled: bool = True
+    crawler_recover_on_browser_crash: bool = True
+    crawler_hard_timeout_margin_seconds: float = 5.0
 
     playwright_no_sandbox: bool = True
     playwright_disable_dev_shm_usage: bool = True
@@ -121,6 +127,11 @@ class Settings(BaseSettings):
     @property
     def queue_processing_key(self) -> str:
         return f"{self.queue_namespace}:processing"
+
+    @property
+    def instagram_block_resource_type_set(self) -> set[str]:
+        raw = self.instagram_block_resource_types or ""
+        return {part.strip().lower() for part in raw.split(",") if part.strip()}
 
 
 def validate_production_internal_api_key(settings: Settings) -> None:

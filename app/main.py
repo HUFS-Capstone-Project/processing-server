@@ -9,6 +9,7 @@ from app.core.config import get_settings, validate_production_internal_api_key
 from app.domain.job import JobService
 from app.infra.db import JobRepository, create_db_pool
 from app.infra.queue import RedisJobQueue
+from app.services.crawler.playwright_service import shutdown_crawler_runtime
 
 
 @asynccontextmanager
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await shutdown_crawler_runtime()
         await queue.close()
         await db_pool.close()
 
