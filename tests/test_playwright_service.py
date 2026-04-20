@@ -34,6 +34,11 @@ def _run(coro):
 
 
 class _FakeRuntime:
+    class _BrowserStub:
+        @staticmethod
+        def is_connected() -> bool:
+            return True
+
     def __init__(self) -> None:
         self.ensure_calls = 0
         self.launch_count = 0
@@ -49,8 +54,8 @@ class _FakeRuntime:
         if not self._launched:
             self._launched = True
             self.launch_count += 1
-            return object(), 17
-        return object(), 0
+            return self._BrowserStub(), 17
+        return self._BrowserStub(), 0
 
     async def shutdown(self) -> None:
         self.shutdown_calls += 1
@@ -67,6 +72,7 @@ def test_instagram_fetch_reuses_browser_launch(monkeypatch) -> None:
             caption="ok",
             og_source="og:description",
             og_wait_timed_out=False,
+            early_extract_hit=False,
             blocked_resource_count=3,
             launch_ms=0,
             context_ms=4,
@@ -101,6 +107,7 @@ def test_instagram_fetch_recovers_on_browser_crash_once(monkeypatch) -> None:
             caption="recovered",
             og_source="og:description",
             og_wait_timed_out=False,
+            early_extract_hit=False,
             blocked_resource_count=0,
             launch_ms=0,
             context_ms=1,
@@ -120,3 +127,16 @@ def test_instagram_fetch_recovers_on_browser_crash_once(monkeypatch) -> None:
     assert caption == "recovered"
     assert calls["count"] == 2
     assert runtime.shutdown_calls == 1
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_prewarm_runtime_calls_ensure_browser(monkeypatch) -> None:
+    runtime = _FakeRuntime()
+    monkeypatch.setattr(service, "_INSTAGRAM_RUNTIME", runtime)
+    settings = Settings(crawler_browser_reuse_enabled=True)
+
+    warmed = _run(service.prewarm_crawler_runtime(settings))
+
+    assert warmed is True
+    assert runtime.ensure_calls == 1
+    assert runtime.launch_count == 1

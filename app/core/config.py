@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     worker_retry_max_seconds: int = 300
     worker_idle_sleep_seconds: float = 1.0
     worker_metrics_log_interval_seconds: int = 60
+    worker_prewarm_browser: bool = True
+    worker_prewarm_timeout_seconds: int = 15
 
     crawler_timeout: int = 30
 

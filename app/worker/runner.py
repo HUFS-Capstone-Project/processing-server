@@ -9,7 +9,7 @@ import time
 from app.core.config import get_settings
 from app.infra.db import JobRepository, create_db_pool
 from app.infra.queue import RedisJobQueue
-from app.services.crawler.playwright_service import shutdown_crawler_runtime
+from app.services.crawler.playwright_service import prewarm_crawler_runtime, shutdown_crawler_runtime
 from app.worker.processor import JobProcessor
 
 logger = logging.getLogger("processing.worker")
@@ -95,6 +95,15 @@ async def run_worker() -> None:
         repository=repository,
         settings=settings,
     )
+
+    if settings.worker_prewarm_browser:
+        try:
+            await asyncio.wait_for(
+                prewarm_crawler_runtime(settings),
+                timeout=max(1, settings.worker_prewarm_timeout_seconds),
+            )
+        except Exception:
+            logger.warning("worker prewarm failed", exc_info=True)
 
     logger.info("worker started")
     try:

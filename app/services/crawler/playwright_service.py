@@ -33,6 +33,7 @@ class InstagramFetchResult:
     caption: str
     og_source: str
     og_wait_timed_out: bool
+    early_extract_hit: bool
     blocked_resource_count: int
     launch_ms: int
     context_ms: int
@@ -160,6 +161,20 @@ def _is_browser_crash_error(exc: Exception) -> bool:
     return any(marker in msg for marker in markers)
 
 
+def _has_meaningful_og_payload(og_source: str, caption: str) -> bool:
+    if caption.strip():
+        return True
+    return og_source not in {"", "none"}
+
+
+async def _extract_og_from_page(page) -> tuple[str, str, int]:
+    extract_started = time.monotonic()
+    raw = await page.evaluate(OG_EXTRACTION_JS)
+    og_source, caption = _parse_og_extraction_result(raw)
+    extract_ms = int((time.monotonic() - extract_started) * 1000)
+    return og_source, caption, extract_ms
+
+
 async def _run_instagram_fetch_with_browser(
     *,
     browser: Browser,
@@ -181,6 +196,23 @@ async def _run_instagram_fetch_with_browser(
         await page.goto(url, wait_until="domcontentloaded", timeout=navigation_timeout_ms)
         goto_ms = int((time.monotonic() - goto_started) * 1000)
 
+        og_source, caption, extract_ms = await _extract_og_from_page(page)
+        if _has_meaningful_og_payload(og_source, caption):
+            total_ms = int((time.monotonic() - started) * 1000)
+            return InstagramFetchResult(
+                caption=caption,
+                og_source=og_source,
+                og_wait_timed_out=False,
+                early_extract_hit=True,
+                blocked_resource_count=route_stats.blocked_resource_count,
+                launch_ms=launch_ms,
+                context_ms=context_ms,
+                goto_ms=goto_ms,
+                og_wait_ms=0,
+                extract_ms=extract_ms,
+                total_ms=total_ms,
+            )
+
         og_wait_started = time.monotonic()
         try:
             await page.wait_for_function(
@@ -192,15 +224,16 @@ async def _run_instagram_fetch_with_browser(
             logger.info("crawler og wait timeout mode=instagram url=%s", url)
         og_wait_ms = int((time.monotonic() - og_wait_started) * 1000)
 
-        extract_started = time.monotonic()
-        raw = await page.evaluate(OG_EXTRACTION_JS)
-        og_source, caption = _parse_og_extraction_result(raw)
-        extract_ms = int((time.monotonic() - extract_started) * 1000)
+        og_source_after_wait, caption_after_wait, extract_after_wait_ms = await _extract_og_from_page(page)
+        og_source = og_source_after_wait or og_source
+        caption = caption_after_wait or caption
+        extract_ms += extract_after_wait_ms
         total_ms = int((time.monotonic() - started) * 1000)
         return InstagramFetchResult(
             caption=caption,
             og_source=og_source,
             og_wait_timed_out=og_wait_timed_out,
+            early_extract_hit=False,
             blocked_resource_count=route_stats.blocked_resource_count,
             launch_ms=launch_ms,
             context_ms=context_ms,
@@ -265,7 +298,8 @@ async def _fetch_instagram_og_caption(
                 (
                     "crawler done mode=instagram url=%s total_ms=%s launch_ms=%s "
                     "context_ms=%s goto_ms=%s og_wait_ms=%s extract_ms=%s "
-                    "og_source=%s og_wait_timed_out=%s blocked_resource_count=%s caption_len=%s"
+                    "og_source=%s og_wait_timed_out=%s early_extract_hit=%s "
+                    "blocked_resource_count=%s caption_len=%s"
                 ),
                 url,
                 fetch_result.total_ms,
@@ -276,6 +310,7 @@ async def _fetch_instagram_og_caption(
                 fetch_result.extract_ms,
                 fetch_result.og_source,
                 fetch_result.og_wait_timed_out,
+                fetch_result.early_extract_hit,
                 fetch_result.blocked_resource_count,
                 len(fetch_result.caption),
             )
@@ -331,3 +366,23 @@ async def fetch_page_html_and_text(url: str, settings: Settings) -> tuple[str | 
 
 async def shutdown_crawler_runtime() -> None:
     await _INSTAGRAM_RUNTIME.shutdown()
+
+
+async def prewarm_crawler_runtime(settings: Settings) -> bool:
+    if not settings.crawler_browser_reuse_enabled:
+        return False
+    started = time.monotonic()
+    try:
+        async with _INSTAGRAM_RUNTIME.slot():
+            browser, launch_ms = await _INSTAGRAM_RUNTIME.ensure_browser(settings)
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        logger.info(
+            "crawler prewarm done launch_ms=%s elapsed_ms=%s browser_connected=%s",
+            launch_ms,
+            elapsed_ms,
+            browser.is_connected(),
+        )
+        return True
+    except Exception:
+        logger.warning("crawler prewarm failed", exc_info=True)
+        return False
