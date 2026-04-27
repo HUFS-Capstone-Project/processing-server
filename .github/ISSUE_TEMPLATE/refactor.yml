@@ -1,0 +1,48 @@
+name: "🧹 리팩토링 (Refactor)"
+description: "구조·가독성 개선"
+title: "[refactor] "
+labels:
+  - refactor
+body:
+  - type: textarea
+    id: target
+    attributes:
+      label: "📂 리팩토링 대상"
+      description: "어떤 파일·모듈·영역을 손볼지 적어 주세요."
+      placeholder: "예) `src/features/foo`, 인증 훅, API 레이어 등"
+    validations:
+      required: true
+
+  - type: textarea
+    id: purpose
+    attributes:
+      label: "🎯 목적"
+      description: "왜 리팩토링이 필요한지 (중복 제거, 테스트 용이, 책임 분리 등) 적어 주세요."
+    validations:
+      required: true
+
+  - type: textarea
+    id: direction
+    attributes:
+      label: "🔀 변경 방향"
+      description: "어떤 식으로 구조를 바꿀 계획인지 요약해 주세요."
+      placeholder: "예) 컴포넌트 분리, 훅 추출, 네이밍 정리 등"
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: "📊 영향 범위"
+      description: "연관된 기능·팀·배포 시 주의할 점이 있으면 적어 주세요."
+    validations:
+      required: false
+
+  - type: textarea
+    id: done
+    attributes:
+      label: "✅ 완료 조건"
+      description: "동작은 동일하게 유지하면서 어떤 상태가 되면 끝인지 적어 주세요."
+      placeholder: "예) 기존 시나리오 동일 동작, 린트·테스트 통과"
+    validations:
+      required: true

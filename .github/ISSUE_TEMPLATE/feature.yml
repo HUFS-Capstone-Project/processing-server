@@ -1,0 +1,49 @@
+name: "✨ 기능 (Feature)"
+description: "새 기능·개선 제안"
+title: "[feat] "
+labels:
+  - feat
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: "📖 배경"
+      description: "왜 이 작업이 필요한지, 어떤 문제·요구에서 출발했는지 간단히 적어 주세요."
+      placeholder: "예) 사용자가 OO 화면에서 XX를 할 수 없어 불편함이 있음."
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: "🎯 목표"
+      description: "이번 작업으로 달성하고 싶은 결과를 한두 문장으로 적어 주세요."
+      placeholder: "예) OO 화면에서 XX를 수행할 수 있게 한다."
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: "🛠️ 구현 내용"
+      description: "어떤 화면·API·동작을 어떻게 바꿀지 구체적으로 적어 주세요."
+      placeholder: "예) 버튼 추가, API 연동, 상태 관리 방식 등"
+    validations:
+      required: true
+
+  - type: textarea
+    id: considerations
+    attributes:
+      label: "⚠️ 고려사항"
+      description: "성능, 접근성, 보안, 기존 사용자 영향 등 신경 쓸 점이 있으면 적어 주세요. 없으면 \"없음\"으로 두셔도 됩니다."
+    validations:
+      required: false
+
+  - type: textarea
+    id: done
+    attributes:
+      label: "✅ 완료 조건"
+      description: "이 이슈를 닫아도 될 만큼 \"무엇이 되면 끝인지\" 적어 주세요."
+      placeholder: "예) OO 시나리오에서 XX가 동작하고, 관련 테스트가 통과함."
+    validations:
+      required: true

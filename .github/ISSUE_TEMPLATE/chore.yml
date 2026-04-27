@@ -1,0 +1,30 @@
+name: "🧰 잡무 (Chore)"
+description: "빌드·설정·문서·의존성 등 — 기능 코드와 무관한 작업"
+title: "[chore] "
+labels:
+  - chore
+body:
+  - type: textarea
+    id: purpose
+    attributes:
+      label: "🎯 작업 목적"
+      description: "왜 이 작업을 하는지 한두 문장으로 적어 주세요."
+    validations:
+      required: true
+
+  - type: textarea
+    id: content
+    attributes:
+      label: "📝 작업 내용"
+      description: "무엇을 바꿀지 구체적으로 적어 주세요."
+      placeholder: "예) 패키지 업데이트, CI 설정, README 수정 등"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: "📎 비고"
+      description: "팀에 공유할 참고 링크나 주의사항이 있으면 적어 주세요."
+    validations:
+      required: false
