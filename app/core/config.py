@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     kakao_timeout_seconds: int = 5
     kakao_max_places_per_candidate: int = 5
 
+    hf_extraction_endpoint_url: str = ""
+    hf_extraction_api_token: str = ""
+    hf_extraction_model_name: str = "Qwen/Qwen2.5-3B-Instruct"
+    hf_extraction_timeout_seconds: int = 20
+    hf_extraction_max_new_tokens: int = 512
+
     @field_validator("processing_schema")
     @classmethod
     def validate_schema_name(cls, value: str) -> str:

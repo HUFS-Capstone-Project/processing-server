@@ -105,7 +105,9 @@ class JobRepository:
         job_id: UUID,
         caption: str | None,
         instagram_meta: dict[str, Any] | None,
+        extraction_result: dict[str, Any] | None = None,
     ) -> JobResultRecord:
+        _ = extraction_result
         sql = f"""
         INSERT INTO {self._results_table}
             (job_id, caption, instagram_meta)
@@ -144,6 +146,7 @@ class JobRepository:
             job_id=row["job_id"],
             caption=row["caption"],
             instagram_meta=self._json_to_dict(row["instagram_meta"]),
+            extraction_result=None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

@@ -14,6 +14,21 @@ class JobStatus(str, Enum):
     FAILED = "FAILED"
 
 
+class ExtractionCertainty(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+@dataclass(slots=True)
+class ExtractionResult:
+    store_name: str | None
+    address: str | None
+    store_name_evidence: str | None
+    address_evidence: str | None
+    certainty: ExtractionCertainty
+
+
 @dataclass(slots=True)
 class JobRecord:
     job_id: UUID
@@ -30,6 +45,7 @@ class JobResultRecord:
     job_id: UUID
     caption: str | None
     instagram_meta: dict[str, Any] | None
+    extraction_result: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 
@@ -85,4 +101,14 @@ def as_candidate_dict(candidate: ExtractedCandidate) -> dict[str, Any]:
         "source_keyword": candidate.source_keyword,
         "source_sentence": candidate.source_sentence,
         "raw_candidate": candidate.raw_candidate,
+    }
+
+
+def as_extraction_result_dict(result: ExtractionResult) -> dict[str, Any]:
+    return {
+        "store_name": result.store_name,
+        "address": result.address,
+        "store_name_evidence": result.store_name_evidence,
+        "address_evidence": result.address_evidence,
+        "certainty": result.certainty.value,
     }
