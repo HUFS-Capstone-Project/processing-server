@@ -8,9 +8,10 @@ import time
 
 from app.core.config import get_settings
 from app.infra.db import JobRepository, create_db_pool
+from app.infra.llm import HFExtractionClient
 from app.infra.queue import RedisJobQueue
 from app.services.crawler.playwright_service import prewarm_crawler_runtime, shutdown_crawler_runtime
-from app.worker.processor import JobProcessor
+from app.worker.processor import ExtractionPort, JobProcessor
 
 logger = logging.getLogger("processing.worker")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -84,6 +85,13 @@ class WorkerMetricsAggregator:
         return int(sorted_values[idx])
 
 
+def build_extraction_client(settings) -> ExtractionPort | None:
+    if not settings.hf_extraction_endpoint_url or not settings.hf_extraction_api_token:
+        logger.info("worker extraction client disabled (HF endpoint URL or token is empty)")
+        return None
+    return HFExtractionClient(settings)
+
+
 async def run_worker() -> None:
     settings = get_settings()
     pool = await create_db_pool(settings)
@@ -94,6 +102,7 @@ async def run_worker() -> None:
     processor = JobProcessor(
         repository=repository,
         settings=settings,
+        extraction_client=build_extraction_client(settings),
     )
 
     if settings.worker_prewarm_browser:

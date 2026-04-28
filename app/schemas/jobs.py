@@ -9,6 +9,14 @@ from pydantic import BaseModel, Field, HttpUrl
 from app.domain.job.model import JobStatus
 
 
+class ExtractionResultResponse(BaseModel):
+    store_name: str | None
+    address: str | None
+    store_name_evidence: str | None
+    address_evidence: str | None
+    certainty: Literal["high", "medium", "low"]
+
+
 class CreateJobRequest(BaseModel):
     url: HttpUrl = Field(..., examples=["https://www.instagram.com/reel/abcde/"])
     room_id: UUID
@@ -40,6 +48,7 @@ class JobResultResponse(BaseModel):
     status: JobStatus
     caption: str | None
     instagram_meta: dict[str, object] | None
+    extraction_result: ExtractionResultResponse | None = None
     error_message: str | None
     updated_at: datetime
 
