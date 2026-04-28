@@ -87,7 +87,8 @@ def test_hf_extraction_client_returns_domain_result() -> None:
     assert seen_requests[0]["messages"][1]["content"] == (
         "Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul"
     )
-    assert seen_requests[0]["metadata"]["media_type"] == "reel"
+    assert seen_requests[0]["temperature"] == 0.0
+    assert seen_requests[0]["max_tokens"] == 512
 
 
 def test_hf_extraction_client_raises_on_http_error() -> None:

@@ -12,13 +12,12 @@ from app.domain.job import ExtractionResult
 from app.schemas.extraction import ExtractionLLMResponse
 
 EXTRACTION_SYSTEM_PROMPT = (
-    "너는 한국어 맛집 게시물에서 정보를 추출하는 시스템이다. "
-    "반드시 JSON 객체 하나만 출력하라. "
-    "필드는 store_name, address, store_name_evidence, address_evidence, certainty 이다. "
-    "store_name 또는 address가 없으면 null로 채워라. "
-    "evidence 필드는 원문에서 그대로 가져온 substring이어야 한다. "
-    "certainty는 high, medium, low 중 하나만 사용하라. "
-    "추가 설명 문장은 출력하지 마라."
+    "You extract store information from Korean restaurant social media captions. "
+    "Return only one JSON object with these exact keys: store_name, address, "
+    "store_name_evidence, address_evidence, certainty. Use null when a value is "
+    "unknown. Evidence values must be substrings copied from the input caption. "
+    "certainty must be one of high, medium, or low. Do not include explanations, "
+    "Markdown, or any text outside the JSON object."
 )
 
 
@@ -97,20 +96,15 @@ class HFExtractionClient:
         source_url: str,
         media_type: str | None,
     ) -> dict[str, Any]:
+        _ = source_url, media_type
         return {
             "model": self._settings.hf_extraction_model_name,
             "messages": [
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
                 {"role": "user", "content": text},
             ],
-            "metadata": {
-                "source_url": source_url,
-                "media_type": media_type,
-            },
-            "parameters": {
-                "temperature": 0.0,
-                "max_new_tokens": self._settings.hf_extraction_max_new_tokens,
-            },
+            "temperature": 0.0,
+            "max_tokens": self._settings.hf_extraction_max_new_tokens,
         }
 
 
