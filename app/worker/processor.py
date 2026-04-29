@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Protocol
@@ -178,12 +179,10 @@ class JobProcessor:
             ),
             raw_candidate=store_name,
         )
-        location_hints = [extraction_result.address.strip()] if extraction_result.address else []
+        location_hints = self._build_location_hints(extraction_result.address)
 
         try:
-            places = await self._search_places(candidate, location_hints)
-            if not places and location_hints:
-                places = await self._search_places(candidate, [])
+            places = await self._search_places_by_hints(candidate, location_hints)
         except KakaoNonRetryableError:
             logger.error("kakao enrichment non-retryable failure", exc_info=True)
             return [], None
@@ -210,3 +209,80 @@ class JobProcessor:
             return []
         result = await self._place_search_client.search_places(candidate, location_hints)
         return result.places
+
+    async def _search_places_by_hints(
+        self,
+        candidate: ExtractedCandidate,
+        location_hints: list[str],
+    ) -> list[PlaceCandidate]:
+        for hint in location_hints:
+            places = await self._search_places(candidate, [hint])
+            qualified = self._qualified_places(places)
+            if qualified:
+                return qualified
+
+        places = await self._search_places(candidate, [])
+        return self._qualified_places(places)
+
+    def _qualified_places(self, places: list[PlaceCandidate]) -> list[PlaceCandidate]:
+        return [
+            place
+            for place in places
+            if place.confidence >= self._settings.kakao_min_place_confidence
+        ]
+
+    @staticmethod
+    def _build_location_hints(address: str | None) -> list[str]:
+        raw = (address or "").strip()
+        if not raw:
+            return []
+
+        tokens = [token.strip(",") for token in re.split(r"\s+", raw) if token.strip(",")]
+        hints = [raw]
+
+        district_suffixes = ("\uad6c", "\uad70")
+        locality_suffixes = ("\ub3d9", "\uc74d", "\uba74", "\ub9ac", "\uac00")
+
+        district_idx = next(
+            (idx for idx, token in enumerate(tokens) if token.endswith(district_suffixes)),
+            None,
+        )
+        if district_idx is not None:
+            hints.append(" ".join(tokens[: district_idx + 1]))
+
+            locality_idx = next(
+                (
+                    idx
+                    for idx in range(district_idx + 1, len(tokens))
+                    if tokens[idx].endswith(locality_suffixes)
+                ),
+                None,
+            )
+            if locality_idx is not None:
+                hints.append(" ".join(tokens[: locality_idx + 1]))
+
+            road_hint = JobProcessor._build_road_hint(tokens, district_idx)
+            if road_hint:
+                hints.append(road_hint)
+
+        deduped: list[str] = []
+        for hint in hints:
+            if hint and hint not in deduped:
+                deduped.append(hint)
+        return deduped
+
+    @staticmethod
+    def _build_road_hint(tokens: list[str], district_idx: int) -> str | None:
+        prefix = tokens[: district_idx + 1]
+        rest = tokens[district_idx + 1 :]
+        if not prefix or not rest:
+            return None
+
+        for idx, token in enumerate(rest):
+            if token.endswith("\uae38"):
+                return " ".join(prefix + [token])
+            if token.endswith("\ub85c"):
+                if idx + 1 < len(rest) and re.fullmatch(r"\d+\uae38", rest[idx + 1]):
+                    return " ".join(prefix + [f"{token}{rest[idx + 1]}"])
+                return " ".join(prefix + [token])
+        return None

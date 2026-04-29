@@ -120,6 +120,16 @@ class FakePlaceSearchClient:
         return FakePlaceSearchResult(self.places)
 
 
+class HintAwarePlaceSearchClient:
+    def __init__(self, places_by_hint: dict[tuple[str, ...], list[PlaceCandidate]]) -> None:
+        self.places_by_hint = places_by_hint
+        self.calls: list[list[str]] = []
+
+    async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
+        self.calls.append(location_hints)
+        return FakePlaceSearchResult(self.places_by_hint.get(tuple(location_hints), []))
+
+
 class FailingPlaceSearchClient:
     async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
         raise RuntimeError("kakao unavailable")
@@ -242,6 +252,70 @@ def test_processor_passes_caption_to_extraction_client(monkeypatch) -> None:
         "certainty": "high",
     }
     assert repo.failed is None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_tries_broader_location_hints_before_keyword_only(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings(kakao_min_place_confidence=0.7)
+    extractor = FakeExtractionClient(
+        ExtractionResult(
+            store_name="Geumdonok",
+            address="서울 서초구 방배로 23길 31-6",
+            store_name_evidence="Geumdonok",
+            address_evidence="서울 서초구 방배로 23길 31-6",
+            certainty=ExtractionCertainty.HIGH,
+        )
+    )
+    place = _place_candidate(confidence=0.95)
+    place_search = HintAwarePlaceSearchClient(
+        {
+            ("서울 서초구",): [place],
+            tuple(): [_place_candidate(confidence=0.85)],
+        }
+    )
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            text="Geumdonok 서울 서초구 방배로 23길 31-6",
+            media_type="reel",
+            caption="Geumdonok 서울 서초구 방배로 23길 31-6",
+            instagram_meta=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+        place_search_client=place_search,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert place_search.calls == [
+        ["서울 서초구 방배로 23길 31-6"],
+        ["서울 서초구"],
+    ]
+    assert repo.saved_result is not None
+    assert repo.saved_result["selected_place"]["confidence"] == 0.95
+
+
+def test_build_location_hints_from_korean_address() -> None:
+    assert JobProcessor._build_location_hints("서울 서초구 방배로 23길 31-6") == [
+        "서울 서초구 방배로 23길 31-6",
+        "서울 서초구",
+        "서울 서초구 방배로23길",
+    ]
+    assert JobProcessor._build_location_hints("서울 강남구 도곡동 954-17") == [
+        "서울 강남구 도곡동 954-17",
+        "서울 강남구",
+        "서울 강남구 도곡동",
+    ]
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
