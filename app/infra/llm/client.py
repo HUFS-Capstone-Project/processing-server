@@ -16,6 +16,9 @@ EXTRACTION_SYSTEM_PROMPT = (
     "Return only one JSON object with these exact keys: store_name, address, "
     "store_name_evidence, address_evidence, certainty. Use null when a value is "
     "unknown. Evidence values must be substrings copied from the input caption. "
+    "For store_name, prefer explicit proper nouns near bullets, check marks, "
+    "hashtags, or address lines. Do not use generic food, menu, category, or "
+    "description phrases as store_name when a more specific proper noun exists. "
     "certainty must be one of high, medium, or low. Do not include explanations, "
     "Markdown, or any text outside the JSON object."
 )
