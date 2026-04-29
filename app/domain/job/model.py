@@ -46,6 +46,8 @@ class JobResultRecord:
     caption: str | None
     instagram_meta: dict[str, Any] | None
     extraction_result: dict[str, Any] | None
+    place_candidates: list[dict[str, Any]]
+    selected_place: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
 
@@ -60,11 +62,17 @@ class ExtractedCandidate:
 
 @dataclass(slots=True)
 class PlaceCandidate:
-    place_name: str
-    road_address: str | None
-    address: str | None
-    category: str | None
     kakao_place_id: str
+    place_name: str
+    category_name: str | None
+    category_group_code: str | None
+    category_group_name: str | None
+    phone: str | None
+    address_name: str | None
+    road_address_name: str | None
+    x: str | None
+    y: str | None
+    place_url: str | None
     confidence: float
     source_keyword: str
     source_sentence: str
@@ -83,11 +91,17 @@ class CrawlArtifact:
 
 def as_place_dict(place: PlaceCandidate) -> dict[str, Any]:
     return {
-        "place_name": place.place_name,
-        "road_address": place.road_address,
-        "address": place.address,
-        "category": place.category,
         "kakao_place_id": place.kakao_place_id,
+        "place_name": place.place_name,
+        "category_name": place.category_name,
+        "category_group_code": place.category_group_code,
+        "category_group_name": place.category_group_name,
+        "phone": place.phone,
+        "address_name": place.address_name,
+        "road_address_name": place.road_address_name,
+        "x": place.x,
+        "y": place.y,
+        "place_url": place.place_url,
         "confidence": round(place.confidence, 4),
         "source_keyword": place.source_keyword,
         "source_sentence": place.source_sentence,

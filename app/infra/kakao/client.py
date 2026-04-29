@@ -28,9 +28,15 @@ class KakaoSearchResult:
 
 
 class KakaoLocalClient:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._settings = settings
         self._headers = {"Authorization": f"KakaoAK {settings.kakao_rest_api_key}"}
+        self._transport = transport
 
     async def search_places(
         self,
@@ -51,7 +57,7 @@ class KakaoLocalClient:
         url = f"{self._settings.kakao_base_url}/v2/local/search/keyword.json"
 
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
                 response = await client.get(url, params=params, headers=self._headers)
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             raise KakaoRetryableError(str(exc)) from exc
@@ -88,11 +94,17 @@ class KakaoLocalClient:
             confidence = self._score_place(candidate.keyword, place_name, idx, doc, location_hints)
             places.append(
                 PlaceCandidate(
-                    place_name=place_name,
-                    road_address=(doc.get("road_address_name") or "").strip() or None,
-                    address=(doc.get("address_name") or "").strip() or None,
-                    category=(doc.get("category_name") or "").strip() or None,
                     kakao_place_id=str(doc.get("id") or ""),
+                    place_name=place_name,
+                    category_name=(doc.get("category_name") or "").strip() or None,
+                    category_group_code=(doc.get("category_group_code") or "").strip() or None,
+                    category_group_name=(doc.get("category_group_name") or "").strip() or None,
+                    phone=(doc.get("phone") or "").strip() or None,
+                    address_name=(doc.get("address_name") or "").strip() or None,
+                    road_address_name=(doc.get("road_address_name") or "").strip() or None,
+                    x=(doc.get("x") or "").strip() or None,
+                    y=(doc.get("y") or "").strip() or None,
+                    place_url=(doc.get("place_url") or "").strip() or None,
                     confidence=confidence,
                     source_keyword=candidate.source_keyword,
                     source_sentence=candidate.source_sentence,
@@ -110,7 +122,7 @@ class KakaoLocalClient:
         location_hints: list[str],
     ) -> float:
         score = 0.35
-        if keyword.lower() in place_name.lower():
+        if _normalize_place_text(keyword) in _normalize_place_text(place_name):
             score += 0.3
         if rank == 0:
             score += 0.2
@@ -129,3 +141,7 @@ class KakaoLocalClient:
             score += 0.1
 
         return max(0.0, min(0.99, score))
+
+
+def _normalize_place_text(value: str) -> str:
+    return "".join((value or "").lower().split())

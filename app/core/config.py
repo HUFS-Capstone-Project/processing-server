@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     kakao_base_url: str = "https://dapi.kakao.com"
     kakao_timeout_seconds: int = 5
     kakao_max_places_per_candidate: int = 5
+    kakao_min_place_confidence: float = 0.7
 
     hf_extraction_endpoint_url: str = ""
     hf_extraction_api_token: str = ""

@@ -8,6 +8,7 @@ import time
 
 from app.core.config import get_settings
 from app.infra.db import JobRepository, create_db_pool
+from app.infra.kakao import KakaoLocalClient
 from app.infra.llm import HFExtractionClient
 from app.infra.queue import RedisJobQueue
 from app.services.crawler.playwright_service import prewarm_crawler_runtime, shutdown_crawler_runtime
@@ -92,6 +93,13 @@ def build_extraction_client(settings) -> ExtractionPort | None:
     return HFExtractionClient(settings)
 
 
+def build_place_search_client(settings):
+    if not settings.kakao_rest_api_key:
+        logger.warning("worker kakao client disabled (KAKAO_REST_API_KEY is empty)")
+        return None
+    return KakaoLocalClient(settings)
+
+
 async def run_worker() -> None:
     settings = get_settings()
     pool = await create_db_pool(settings)
@@ -103,6 +111,7 @@ async def run_worker() -> None:
         repository=repository,
         settings=settings,
         extraction_client=build_extraction_client(settings),
+        place_search_client=build_place_search_client(settings),
     )
 
     if settings.worker_prewarm_browser:

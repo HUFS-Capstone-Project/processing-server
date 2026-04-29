@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -13,6 +14,7 @@ from app.domain.job import (
     ExtractionResult,
     JobRecord,
     JobStatus,
+    PlaceCandidate,
 )
 from app.worker.processor import JobProcessor
 
@@ -97,6 +99,32 @@ class FailingExtractionClient:
         raise RuntimeError("endpoint unavailable")
 
 
+@dataclass
+class FakePlaceSearchResult:
+    places: list[PlaceCandidate]
+
+
+class FakePlaceSearchClient:
+    def __init__(self, places: list[PlaceCandidate]) -> None:
+        self.places = places
+        self.calls: list[dict[str, object]] = []
+
+    async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
+        self.calls.append(
+            {
+                "keyword": candidate.keyword,
+                "source_keyword": candidate.source_keyword,
+                "location_hints": location_hints,
+            }
+        )
+        return FakePlaceSearchResult(self.places)
+
+
+class FailingPlaceSearchClient:
+    async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
+        raise RuntimeError("kakao unavailable")
+
+
 def _new_job() -> JobRecord:
     now = datetime.now(timezone.utc)
     return JobRecord(
@@ -107,6 +135,26 @@ def _new_job() -> JobRecord:
         error_message=None,
         created_at=now,
         updated_at=now,
+    )
+
+
+def _place_candidate(*, confidence: float = 0.95) -> PlaceCandidate:
+    return PlaceCandidate(
+        kakao_place_id="123",
+        place_name="Common Mansion",
+        category_name="Food > Cafe",
+        category_group_code="CE7",
+        category_group_name="Cafe",
+        phone="02-0000-0000",
+        address_name="Seoul Jongno-gu Sinmunro 2-ga 1-102",
+        road_address_name="Seoul Jongno-gu Saemunan-ro 1",
+        x="126.970000",
+        y="37.570000",
+        place_url="https://place.map.kakao.com/123",
+        confidence=confidence,
+        source_keyword="Common Mansion",
+        source_sentence="Common Mansion 1-102 Sinmunro 2-ga",
+        raw_candidate="Common Mansion",
     )
 
 
@@ -193,6 +241,149 @@ def test_processor_passes_caption_to_extraction_client(monkeypatch) -> None:
         "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
         "certainty": "high",
     }
+    assert repo.failed is None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_enriches_place_from_extraction_result(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings()
+    extractor = FakeExtractionClient(
+        ExtractionResult(
+            store_name="Common Mansion",
+            address="1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            store_name_evidence="Common Mansion",
+            address_evidence="1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            certainty=ExtractionCertainty.HIGH,
+        )
+    )
+    place_search = FakePlaceSearchClient(
+        [
+            _place_candidate(confidence=0.75),
+            _place_candidate(confidence=0.95),
+        ]
+    )
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            media_type="reel",
+            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            instagram_meta=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+        place_search_client=place_search,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert place_search.calls == [
+        {
+            "keyword": "Common Mansion",
+            "source_keyword": "Common Mansion",
+            "location_hints": ["1-102 Sinmunro 2-ga, Jongno-gu, Seoul"],
+        }
+    ]
+    assert repo.succeeded is True
+    assert repo.saved_result is not None
+    assert len(repo.saved_result["place_candidates"]) == 2
+    assert repo.saved_result["selected_place"]["confidence"] == 0.95
+    assert repo.saved_result["selected_place"]["kakao_place_id"] == "123"
+    assert repo.failed is None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_succeeds_when_place_search_fails(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings()
+    extractor = FakeExtractionClient(
+        ExtractionResult(
+            store_name="Common Mansion",
+            address="1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            store_name_evidence="Common Mansion",
+            address_evidence="1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            certainty=ExtractionCertainty.HIGH,
+        )
+    )
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            media_type="reel",
+            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            instagram_meta=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+        place_search_client=FailingPlaceSearchClient(),
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert repo.succeeded is True
+    assert repo.saved_result is not None
+    assert repo.saved_result["place_candidates"] == []
+    assert repo.saved_result["selected_place"] is None
+    assert repo.failed is None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_drops_low_confidence_place_candidates(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings(kakao_min_place_confidence=0.7)
+    extractor = FakeExtractionClient(
+        ExtractionResult(
+            store_name="Common Mansion",
+            address="1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            store_name_evidence="Common Mansion",
+            address_evidence="1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            certainty=ExtractionCertainty.HIGH,
+        )
+    )
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            media_type="reel",
+            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            instagram_meta=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+        place_search_client=FakePlaceSearchClient([_place_candidate(confidence=0.55)]),
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert repo.succeeded is True
+    assert repo.saved_result is not None
+    assert repo.saved_result["place_candidates"] == []
+    assert repo.saved_result["selected_place"] is None
     assert repo.failed is None
 
 

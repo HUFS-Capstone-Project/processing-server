@@ -106,17 +106,21 @@ class JobRepository:
         caption: str | None,
         instagram_meta: dict[str, Any] | None,
         extraction_result: dict[str, Any] | None = None,
+        place_candidates: list[dict[str, Any]] | None = None,
+        selected_place: dict[str, Any] | None = None,
     ) -> JobResultRecord:
         sql = f"""
         INSERT INTO {self._results_table}
-            (job_id, caption, instagram_meta, extraction_result)
+            (job_id, caption, instagram_meta, extraction_result, place_candidates, selected_place)
         VALUES
-            ($1, $2, $3::jsonb, $4::jsonb)
+            ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb)
         ON CONFLICT (job_id)
         DO UPDATE SET
             caption = EXCLUDED.caption,
             instagram_meta = EXCLUDED.instagram_meta,
             extraction_result = EXCLUDED.extraction_result,
+            place_candidates = EXCLUDED.place_candidates,
+            selected_place = EXCLUDED.selected_place,
             updated_at = NOW()
         RETURNING *
         """
@@ -126,6 +130,8 @@ class JobRepository:
             caption,
             json.dumps(instagram_meta or {}),
             json.dumps(extraction_result) if extraction_result is not None else None,
+            json.dumps(place_candidates or []),
+            json.dumps(selected_place) if selected_place is not None else None,
         )
         if row is None:
             raise RuntimeError("Failed to upsert job result")
@@ -148,6 +154,8 @@ class JobRepository:
             caption=row["caption"],
             instagram_meta=self._json_to_dict(row["instagram_meta"]),
             extraction_result=self._json_to_dict(row["extraction_result"]),
+            place_candidates=self._json_to_list(row["place_candidates"]),
+            selected_place=self._json_to_dict(row["selected_place"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -161,3 +169,13 @@ class JobRepository:
         if isinstance(value, dict):
             return value
         return dict(value)
+
+    @staticmethod
+    def _json_to_list(value: Any) -> list[dict[str, Any]]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = json.loads(value)
+        if isinstance(value, list):
+            return value
+        return list(value)
