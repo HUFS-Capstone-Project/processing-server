@@ -107,16 +107,16 @@ class JobRepository:
         instagram_meta: dict[str, Any] | None,
         extraction_result: dict[str, Any] | None = None,
     ) -> JobResultRecord:
-        _ = extraction_result
         sql = f"""
         INSERT INTO {self._results_table}
-            (job_id, caption, instagram_meta)
+            (job_id, caption, instagram_meta, extraction_result)
         VALUES
-            ($1, $2, $3::jsonb)
+            ($1, $2, $3::jsonb, $4::jsonb)
         ON CONFLICT (job_id)
         DO UPDATE SET
             caption = EXCLUDED.caption,
             instagram_meta = EXCLUDED.instagram_meta,
+            extraction_result = EXCLUDED.extraction_result,
             updated_at = NOW()
         RETURNING *
         """
@@ -125,6 +125,7 @@ class JobRepository:
             job_id,
             caption,
             json.dumps(instagram_meta or {}),
+            json.dumps(extraction_result) if extraction_result is not None else None,
         )
         if row is None:
             raise RuntimeError("Failed to upsert job result")
@@ -146,7 +147,7 @@ class JobRepository:
             job_id=row["job_id"],
             caption=row["caption"],
             instagram_meta=self._json_to_dict(row["instagram_meta"]),
-            extraction_result=None,
+            extraction_result=self._json_to_dict(row["extraction_result"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
