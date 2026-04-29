@@ -50,6 +50,8 @@ class FakePool:
             "caption": args[1],
             "instagram_meta": args[2],
             "extraction_result": args[3],
+            "place_candidates": args[4],
+            "selected_place": args[5],
             "created_at": now,
             "updated_at": now,
         }
@@ -67,6 +69,23 @@ def test_upsert_job_result_persists_extraction_result() -> None:
         "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
         "certainty": "high",
     }
+    selected_place = {
+        "kakao_place_id": "123",
+        "place_name": "Common Mansion",
+        "category_name": "음식점 > 카페",
+        "category_group_code": "CE7",
+        "category_group_name": "카페",
+        "phone": "02-0000-0000",
+        "address_name": "서울 종로구 신문로2가 1-102",
+        "road_address_name": "서울 종로구 새문안로 1",
+        "x": "126.970000",
+        "y": "37.570000",
+        "place_url": "https://place.map.kakao.com/123",
+        "confidence": 0.95,
+        "source_keyword": "Common Mansion",
+        "source_sentence": "Common Mansion 1-102 Sinmunro 2-ga",
+        "raw_candidate": "Common Mansion",
+    }
 
     record = _run(
         repository.upsert_job_result(
@@ -74,6 +93,8 @@ def test_upsert_job_result_persists_extraction_result() -> None:
             caption="Common Mansion review",
             instagram_meta={"media_type": "reel"},
             extraction_result=extraction_result,
+            place_candidates=[selected_place],
+            selected_place=selected_place,
         )
     )
 
@@ -85,8 +106,12 @@ def test_upsert_job_result_persists_extraction_result() -> None:
         "Common Mansion review",
         json.dumps({"media_type": "reel"}),
         json.dumps(extraction_result),
+        json.dumps([selected_place]),
+        json.dumps(selected_place),
     )
     assert record.extraction_result == extraction_result
+    assert record.place_candidates == [selected_place]
+    assert record.selected_place == selected_place
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
@@ -106,6 +131,8 @@ def test_get_job_result_maps_extraction_result() -> None:
             "caption": "caption",
             "instagram_meta": json.dumps({"caption": "caption"}),
             "extraction_result": json.dumps(extraction_result),
+            "place_candidates": json.dumps([]),
+            "selected_place": None,
             "created_at": now,
             "updated_at": now,
         }
@@ -116,3 +143,5 @@ def test_get_job_result_maps_extraction_result() -> None:
 
     assert record is not None
     assert record.extraction_result == extraction_result
+    assert record.place_candidates == []
+    assert record.selected_place is None

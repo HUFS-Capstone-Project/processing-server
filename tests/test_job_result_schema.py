@@ -45,3 +45,45 @@ def test_job_result_response_allows_missing_extraction_result() -> None:
     )
 
     assert response.extraction_result is None
+    assert response.place_candidates == []
+    assert response.selected_place is None
+
+
+def test_job_result_response_accepts_kakao_place_result() -> None:
+    selected_place = {
+        "kakao_place_id": "123",
+        "place_name": "커먼맨션",
+        "category_name": "음식점 > 카페",
+        "category_group_code": "CE7",
+        "category_group_name": "카페",
+        "address_name": "서울 종로구 신문로2가 1-102",
+        "road_address_name": "서울 종로구 새문안로 1",
+        "x": "126.970000",
+        "y": "37.570000",
+        "place_url": "https://place.map.kakao.com/123",
+        "phone": None,
+        "confidence": 0.95,
+        "source_keyword": "커먼맨션",
+        "source_sentence": "브런치 맛집 커먼맨션 입니다",
+        "raw_candidate": "커먼맨션",
+    }
+
+    response = JobResultResponse(
+        job_id=uuid4(),
+        source_url="https://www.instagram.com/reel/example/",
+        source="instagram",
+        status=JobStatus.SUCCEEDED,
+        caption="caption",
+        instagram_meta=None,
+        extraction_result=None,
+        place_candidates=[selected_place],
+        selected_place=selected_place,
+        error_message=None,
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    dumped = response.model_dump()
+
+    assert dumped["selected_place"]["place_name"] == "커먼맨션"
+    assert dumped["selected_place"]["category_group_code"] == "CE7"
+    assert dumped["place_candidates"][0]["road_address_name"] == "서울 종로구 새문안로 1"

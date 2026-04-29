@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import asyncio
+
+import httpx
+import pytest
+
+from app.core.config import Settings
+from app.domain.job import ExtractedCandidate
+from app.infra.kakao import KakaoLocalClient, KakaoNonRetryableError
+
+if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+def _can_create_event_loop() -> bool:
+    try:
+        loop = asyncio.new_event_loop()
+        loop.close()
+        return True
+    except OSError:
+        return False
+
+
+EVENT_LOOP_AVAILABLE = _can_create_event_loop()
+
+
+def _run(coro):
+    try:
+        return asyncio.run(coro)
+    except OSError as exc:
+        pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
+
+
+def _settings() -> Settings:
+    return Settings(
+        kakao_rest_api_key="test-kakao-key",
+        kakao_base_url="https://dapi.kakao.com",
+        kakao_max_places_per_candidate=5,
+    )
+
+
+def _candidate() -> ExtractedCandidate:
+    return ExtractedCandidate(
+        keyword="커먼맨션",
+        source_keyword="커먼맨션",
+        source_sentence="브런치 맛집 커먼맨션 입니다",
+        raw_candidate="커먼맨션",
+    )
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_kakao_local_client_maps_place_fields() -> None:
+    seen_requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "documents": [
+                    {
+                        "id": "123",
+                        "place_name": "커먼맨션",
+                        "category_name": "음식점 > 카페",
+                        "category_group_code": "CE7",
+                        "category_group_name": "카페",
+                        "phone": "02-0000-0000",
+                        "address_name": "서울 종로구 신문로2가 1-102",
+                        "road_address_name": "서울 종로구 새문안로 1",
+                        "x": "126.970000",
+                        "y": "37.570000",
+                        "place_url": "https://place.map.kakao.com/123",
+                    }
+                ],
+                "meta": {"total_count": 1},
+            },
+        )
+
+    client = KakaoLocalClient(
+        _settings(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = _run(
+        client.search_places(
+            _candidate(),
+            location_hints=["서울 종로구 신문로2가 1-102"],
+        )
+    )
+
+    assert seen_requests[0].headers["Authorization"] == "KakaoAK test-kakao-key"
+    assert seen_requests[0].url.params["query"] == "서울 종로구 신문로2가 1-102 커먼맨션"
+    assert seen_requests[0].url.params["size"] == "5"
+    place = result.places[0]
+    assert place.kakao_place_id == "123"
+    assert place.place_name == "커먼맨션"
+    assert place.category_name == "음식점 > 카페"
+    assert place.category_group_code == "CE7"
+    assert place.category_group_name == "카페"
+    assert place.address_name == "서울 종로구 신문로2가 1-102"
+    assert place.road_address_name == "서울 종로구 새문안로 1"
+    assert place.x == "126.970000"
+    assert place.y == "37.570000"
+    assert place.place_url == "https://place.map.kakao.com/123"
+    assert place.confidence > 0
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_kakao_local_client_requires_api_key() -> None:
+    client = KakaoLocalClient(Settings(kakao_rest_api_key=""))
+
+    with pytest.raises(KakaoNonRetryableError):
+        _run(client.search_places(_candidate(), []))
