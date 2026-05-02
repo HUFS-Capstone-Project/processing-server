@@ -77,7 +77,6 @@ class JobResultResponse(BaseModel):
     instagram_meta: dict[str, object] | None
     extraction_result: ExtractionResultResponse | None = None
     place_candidates: list[PlaceCandidateResponse] = Field(default_factory=list)
-    selected_place: PlaceCandidateResponse | None = None
     selected_places: list[PlaceCandidateResponse] = Field(default_factory=list)
     error_message: str | None
     updated_at: datetime

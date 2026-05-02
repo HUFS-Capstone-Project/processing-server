@@ -96,7 +96,7 @@ class JobProcessor:
         try:
             crawl_artifact = await crawl_and_parse(job.source_url, self._settings)
             extraction_result = await self._extract_result(job.source_url, crawl_artifact)
-            place_candidates, selected_place, selected_places = await self._enrich_place(
+            place_candidates, selected_places = await self._enrich_place(
                 extraction_result,
                 crawl_artifact,
             )
@@ -116,7 +116,6 @@ class JobProcessor:
                     as_extraction_result_dict(extraction_result) if extraction_result else None
                 ),
                 place_candidates=place_candidates,
-                selected_place=selected_place,
                 selected_places=selected_places,
             )
             await self._repository.mark_succeeded(job.job_id)
@@ -164,13 +163,13 @@ class JobProcessor:
         self,
         extraction_result: ExtractionResult | None,
         crawl_artifact: CrawlArtifact,
-    ) -> tuple[list[dict[str, object]], dict[str, object] | None, list[dict[str, object]]]:
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         if not self._place_search_client or not extraction_result:
-            return [], None, []
+            return [], []
 
         extracted_places = extracted_places_from_result(extraction_result)
         if not extracted_places:
-            return [], None, []
+            return [], []
 
         all_places: list[PlaceCandidate] = []
         selected_places: list[dict[str, object]] = []
@@ -188,7 +187,7 @@ class JobProcessor:
                 places = await self._search_places_by_hints(candidate, location_hints)
             except KakaoNonRetryableError:
                 logger.error("kakao enrichment non-retryable failure", exc_info=True)
-                return [], None, []
+                return [], []
             except Exception:
                 logger.exception(
                     "kakao enrichment failed source_keyword=%s",
@@ -198,10 +197,9 @@ class JobProcessor:
 
             places = sorted(places, key=lambda place: place.confidence, reverse=True)
             if places:
-                selected_place = as_place_dict(places[0])
                 selected_key = self._place_dedupe_key(places[0])
                 if selected_key not in seen_selected_keys:
-                    selected_places.append(selected_place)
+                    selected_places.append(as_place_dict(places[0]))
                     seen_selected_keys.add(selected_key)
 
             for place in places:
@@ -212,8 +210,7 @@ class JobProcessor:
                 seen_candidate_keys.add(candidate_key)
 
         place_candidates = [as_place_dict(place) for place in all_places]
-        selected_place = selected_places[0] if selected_places else None
-        return place_candidates, selected_place, selected_places
+        return place_candidates, selected_places
 
     def _build_extracted_candidate(
         self,

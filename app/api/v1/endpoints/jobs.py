@@ -132,7 +132,6 @@ async def get_job_result(
         instagram_meta=result.instagram_meta if result else None,
         extraction_result=result.extraction_result if result else None,
         place_candidates=result.place_candidates if result else [],
-        selected_place=result.selected_place if result else None,
         selected_places=result.selected_places if result else [],
         error_message=job.error_message,
         updated_at=job.updated_at,

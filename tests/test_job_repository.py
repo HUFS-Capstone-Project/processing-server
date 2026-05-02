@@ -51,8 +51,7 @@ class FakePool:
             "instagram_meta": args[2],
             "extraction_result": args[3],
             "place_candidates": args[4],
-            "selected_place": args[5],
-            "selected_places": args[6],
+            "selected_places": args[5],
             "created_at": now,
             "updated_at": now,
         }
@@ -79,7 +78,7 @@ def test_upsert_job_result_persists_extraction_result() -> None:
             }
         ],
     }
-    selected_place = {
+    place_result = {
         "kakao_place_id": "123",
         "place_name": "Common Mansion",
         "category_name": "음식점 > 카페",
@@ -103,9 +102,8 @@ def test_upsert_job_result_persists_extraction_result() -> None:
             caption="Common Mansion review",
             instagram_meta={"media_type": "reel"},
             extraction_result=extraction_result,
-            place_candidates=[selected_place],
-            selected_place=selected_place,
-            selected_places=[selected_place],
+            place_candidates=[place_result],
+            selected_places=[place_result],
         )
     )
 
@@ -117,14 +115,12 @@ def test_upsert_job_result_persists_extraction_result() -> None:
         "Common Mansion review",
         json.dumps({"media_type": "reel"}),
         json.dumps(extraction_result),
-        json.dumps([selected_place]),
-        json.dumps(selected_place),
-        json.dumps([selected_place]),
+        json.dumps([place_result]),
+        json.dumps([place_result]),
     )
     assert record.extraction_result == extraction_result
-    assert record.place_candidates == [selected_place]
-    assert record.selected_place == selected_place
-    assert record.selected_places == [selected_place]
+    assert record.place_candidates == [place_result]
+    assert record.selected_places == [place_result]
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
@@ -146,7 +142,6 @@ def test_get_job_result_maps_extraction_result() -> None:
             "instagram_meta": json.dumps({"caption": "caption"}),
             "extraction_result": json.dumps(extraction_result),
             "place_candidates": json.dumps([]),
-            "selected_place": None,
             "selected_places": json.dumps([]),
             "created_at": now,
             "updated_at": now,
@@ -159,5 +154,4 @@ def test_get_job_result_maps_extraction_result() -> None:
     assert record is not None
     assert record.extraction_result == extraction_result
     assert record.place_candidates == []
-    assert record.selected_place is None
     assert record.selected_places == []
