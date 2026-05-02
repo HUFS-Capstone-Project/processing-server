@@ -10,6 +10,7 @@ import pytest
 from app.core.config import Settings
 from app.domain.job import (
     CrawlArtifact,
+    ExtractedPlace,
     ExtractionCertainty,
     ExtractionResult,
     JobRecord,
@@ -130,6 +131,22 @@ class HintAwarePlaceSearchClient:
         return FakePlaceSearchResult(self.places_by_hint.get(tuple(location_hints), []))
 
 
+class KeywordAwarePlaceSearchClient:
+    def __init__(self, places_by_keyword: dict[str, list[PlaceCandidate]]) -> None:
+        self.places_by_keyword = places_by_keyword
+        self.calls: list[dict[str, object]] = []
+
+    async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
+        self.calls.append(
+            {
+                "keyword": candidate.keyword,
+                "source_keyword": candidate.source_keyword,
+                "location_hints": location_hints,
+            }
+        )
+        return FakePlaceSearchResult(self.places_by_keyword.get(candidate.keyword, []))
+
+
 class FailingPlaceSearchClient:
     async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
         raise RuntimeError("kakao unavailable")
@@ -148,23 +165,31 @@ def _new_job() -> JobRecord:
     )
 
 
-def _place_candidate(*, confidence: float = 0.95) -> PlaceCandidate:
+def _place_candidate(
+    *,
+    confidence: float = 0.95,
+    kakao_place_id: str = "123",
+    place_name: str = "Common Mansion",
+    source_keyword: str = "Common Mansion",
+    address_name: str = "Seoul Jongno-gu Sinmunro 2-ga 1-102",
+    road_address_name: str = "Seoul Jongno-gu Saemunan-ro 1",
+) -> PlaceCandidate:
     return PlaceCandidate(
-        kakao_place_id="123",
-        place_name="Common Mansion",
+        kakao_place_id=kakao_place_id,
+        place_name=place_name,
         category_name="Food > Cafe",
         category_group_code="CE7",
         category_group_name="Cafe",
         phone="02-0000-0000",
-        address_name="Seoul Jongno-gu Sinmunro 2-ga 1-102",
-        road_address_name="Seoul Jongno-gu Saemunan-ro 1",
+        address_name=address_name,
+        road_address_name=road_address_name,
         x="126.970000",
         y="37.570000",
-        place_url="https://place.map.kakao.com/123",
+        place_url=f"https://place.map.kakao.com/{kakao_place_id}",
         confidence=confidence,
-        source_keyword="Common Mansion",
-        source_sentence="Common Mansion 1-102 Sinmunro 2-ga",
-        raw_candidate="Common Mansion",
+        source_keyword=source_keyword,
+        source_sentence=f"{source_keyword} 1-102 Sinmunro 2-ga",
+        raw_candidate=source_keyword,
     )
 
 
@@ -250,6 +275,15 @@ def test_processor_passes_caption_to_extraction_client(monkeypatch) -> None:
         "store_name_evidence": "Common Mansion",
         "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
         "certainty": "high",
+        "places": [
+            {
+                "store_name": "Common Mansion",
+                "address": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+                "store_name_evidence": "Common Mansion",
+                "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+                "certainty": "high",
+            }
+        ],
     }
     assert repo.failed is None
 
@@ -303,6 +337,7 @@ def test_processor_tries_broader_location_hints_before_keyword_only(monkeypatch)
     ]
     assert repo.saved_result is not None
     assert repo.saved_result["selected_place"]["confidence"] == 0.95
+    assert repo.saved_result["selected_places"][0]["confidence"] == 0.95
 
 
 def test_build_location_hints_from_korean_address() -> None:
@@ -334,8 +369,8 @@ def test_processor_enriches_place_from_extraction_result(monkeypatch) -> None:
     )
     place_search = FakePlaceSearchClient(
         [
-            _place_candidate(confidence=0.75),
-            _place_candidate(confidence=0.95),
+            _place_candidate(confidence=0.75, kakao_place_id="122"),
+            _place_candidate(confidence=0.95, kakao_place_id="123"),
         ]
     )
 
@@ -372,6 +407,92 @@ def test_processor_enriches_place_from_extraction_result(monkeypatch) -> None:
     assert len(repo.saved_result["place_candidates"]) == 2
     assert repo.saved_result["selected_place"]["confidence"] == 0.95
     assert repo.saved_result["selected_place"]["kakao_place_id"] == "123"
+    assert repo.saved_result["selected_places"][0]["confidence"] == 0.95
+    assert repo.failed is None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_enriches_multiple_places_from_extraction_result(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings()
+    extracted_places = [
+        ("플루밍", "서울 마포구 연남로13길 9 1층 101호"),
+        ("누크녹", "서울 마포구 성미산로 190-31 2층"),
+        ("예챠", "서울 마포구 망원로7길 31-18 1층 102호"),
+        ("라뚜셩트", "서울 서초구 방배로25길 50 1층"),
+        ("코이크", "서울 마포구 동교로39길 8 1-2층"),
+        ("카페토요", "서울 영등포구 도림로 436-7 1층"),
+    ]
+    extractor = FakeExtractionClient(
+        ExtractionResult(
+            store_name="플루밍",
+            address="서울 마포구 연남로13길 9 1층 101호",
+            store_name_evidence="❶ 플루밍",
+            address_evidence="📍서울 마포구 연남로13길 9 1층 101호",
+            certainty=ExtractionCertainty.HIGH,
+            places=[
+                ExtractedPlace(
+                    store_name=name,
+                    address=address,
+                    store_name_evidence=name,
+                    address_evidence=address,
+                    certainty=ExtractionCertainty.HIGH,
+                )
+                for name, address in extracted_places
+            ],
+        )
+    )
+    place_search = KeywordAwarePlaceSearchClient(
+        {
+            name: [
+                _place_candidate(
+                    kakao_place_id=str(index),
+                    place_name=name,
+                    source_keyword=name,
+                    address_name=address,
+                    road_address_name=address,
+                )
+            ]
+            for index, (name, address) in enumerate(extracted_places, start=1)
+        }
+    )
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            text="서울에서 만나는 비주얼 디저트 카페들",
+            media_type="reel",
+            caption="서울에서 만나는 비주얼 디저트 카페들",
+            instagram_meta=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+        place_search_client=place_search,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert repo.succeeded is True
+    assert repo.saved_result is not None
+    assert [call["keyword"] for call in place_search.calls] == [
+        name for name, _ in extracted_places
+    ]
+    assert len(repo.saved_result["place_candidates"]) == 6
+    assert [place["place_name"] for place in repo.saved_result["selected_places"]] == [
+        name for name, _ in extracted_places
+    ]
+    assert repo.saved_result["selected_place"]["place_name"] == "플루밍"
+    assert [
+        place["store_name"]
+        for place in repo.saved_result["extraction_result"]["places"]
+    ] == [name for name, _ in extracted_places]
     assert repo.failed is None
 
 
@@ -415,6 +536,7 @@ def test_processor_succeeds_when_place_search_fails(monkeypatch) -> None:
     assert repo.saved_result is not None
     assert repo.saved_result["place_candidates"] == []
     assert repo.saved_result["selected_place"] is None
+    assert repo.saved_result["selected_places"] == []
     assert repo.failed is None
 
 
@@ -458,6 +580,7 @@ def test_processor_drops_low_confidence_place_candidates(monkeypatch) -> None:
     assert repo.saved_result is not None
     assert repo.saved_result["place_candidates"] == []
     assert repo.saved_result["selected_place"] is None
+    assert repo.saved_result["selected_places"] == []
     assert repo.failed is None
 
 

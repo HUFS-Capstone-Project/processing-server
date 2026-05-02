@@ -21,6 +21,15 @@ def test_job_result_response_accepts_extraction_result() -> None:
             "store_name_evidence": "• 커먼맨션",
             "address_evidence": "서울 종로구 신문로2가 1-102",
             "certainty": "high",
+            "places": [
+                {
+                    "store_name": "커먼맨션",
+                    "address": "서울 종로구 신문로2가 1-102",
+                    "store_name_evidence": "• 커먼맨션",
+                    "address_evidence": "서울 종로구 신문로2가 1-102",
+                    "certainty": "high",
+                }
+            ],
         },
         error_message=None,
         updated_at=datetime.now(timezone.utc),
@@ -30,6 +39,7 @@ def test_job_result_response_accepts_extraction_result() -> None:
 
     assert dumped["extraction_result"]["store_name"] == "커먼맨션"
     assert dumped["extraction_result"]["certainty"] == "high"
+    assert dumped["extraction_result"]["places"][0]["store_name"] == "커먼맨션"
 
 
 def test_job_result_response_allows_missing_extraction_result() -> None:
@@ -47,6 +57,7 @@ def test_job_result_response_allows_missing_extraction_result() -> None:
     assert response.extraction_result is None
     assert response.place_candidates == []
     assert response.selected_place is None
+    assert response.selected_places == []
 
 
 def test_job_result_response_accepts_kakao_place_result() -> None:
@@ -78,6 +89,7 @@ def test_job_result_response_accepts_kakao_place_result() -> None:
         extraction_result=None,
         place_candidates=[selected_place],
         selected_place=selected_place,
+        selected_places=[selected_place],
         error_message=None,
         updated_at=datetime.now(timezone.utc),
     )
@@ -85,5 +97,6 @@ def test_job_result_response_accepts_kakao_place_result() -> None:
     dumped = response.model_dump()
 
     assert dumped["selected_place"]["place_name"] == "커먼맨션"
+    assert dumped["selected_places"][0]["place_name"] == "커먼맨션"
     assert dumped["selected_place"]["category_group_code"] == "CE7"
     assert dumped["place_candidates"][0]["road_address_name"] == "서울 종로구 새문안로 1"

@@ -14,6 +14,7 @@ from app.infra.llm import (
     extract_json_object,
     extract_text_from_hf_payload,
 )
+from app.infra.llm.client import build_extraction_system_prompt
 
 
 def _run(coro):
@@ -27,6 +28,7 @@ def _settings() -> Settings:
     return Settings(
         hf_extraction_endpoint_url="https://example.test/hf",
         hf_extraction_api_token="test-token",
+        hf_extraction_max_new_tokens=1024,
     )
 
 
@@ -84,11 +86,13 @@ def test_hf_extraction_client_returns_domain_result() -> None:
     assert result is not None
     assert result.store_name == "Common Mansion"
     assert result.certainty is ExtractionCertainty.HIGH
+    assert len(result.places) == 1
+    assert result.places[0].store_name == "Common Mansion"
     assert seen_requests[0]["messages"][1]["content"] == (
         "Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul"
     )
     assert seen_requests[0]["temperature"] == 0.0
-    assert seen_requests[0]["max_tokens"] == 512
+    assert seen_requests[0]["max_tokens"] == 1024
 
 
 def test_hf_extraction_client_accepts_long_realistic_caption() -> None:
@@ -152,7 +156,64 @@ def test_hf_extraction_client_accepts_long_realistic_caption() -> None:
     assert result.store_name == "커먼맨션"
     assert result.address == "서울 종로구 신문로2가 1-102"
     assert result.certainty is ExtractionCertainty.HIGH
+    assert [place.store_name for place in result.places] == ["커먼맨션"]
     assert seen_requests[0]["messages"][1]["content"] == long_caption
+
+
+def test_hf_extraction_client_returns_multiple_domain_places() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "generated_text": json.dumps(
+                    {
+                        "places": [
+                            {
+                                "store_name": "#플루밍",
+                                "address": "서울 마포구 연남로13길 9 1층 101호",
+                                "store_name_evidence": "#플루밍",
+                                "address_evidence": "서울 마포구 연남로13길 9 1층 101호",
+                                "certainty": "high",
+                            },
+                            {
+                                "store_name": "누크녹",
+                                "address": "서울 마포구 성미산로 190-31 2층",
+                                "store_name_evidence": "❷ 누크녹",
+                                "address_evidence": "서울 마포구 성미산로 190-31 2층",
+                                "certainty": "high",
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+            },
+        )
+
+    extractor = HFExtractionClient(
+        _settings(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = _run(
+        extractor.extract(
+            text="#플루밍\n서울 마포구 연남로13길 9 1층 101호\n❷ 누크녹",
+            source_url="https://www.instagram.com/reel/example/",
+            media_type="reel",
+        )
+    )
+
+    assert result is not None
+    assert result.store_name == "플루밍"
+    assert result.address == "서울 마포구 연남로13길 9 1층 101호"
+    assert [place.store_name for place in result.places] == ["플루밍", "누크녹"]
+
+
+def test_build_extraction_system_prompt_mentions_hashtag_store_names() -> None:
+    prompt = build_extraction_system_prompt(6)
+
+    assert "hashtag" in prompt
+    assert "remove the leading #" in prompt
+    assert "up to 6 places" in prompt
 
 
 def test_hf_extraction_client_raises_on_http_error() -> None:

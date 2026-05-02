@@ -13,11 +13,13 @@ from app.domain.crawl import crawl_and_parse
 from app.domain.job import (
     CrawlArtifact,
     ExtractedCandidate,
+    ExtractedPlace,
     ExtractionResult,
     JobRecord,
     PlaceCandidate,
     as_extraction_result_dict,
     as_place_dict,
+    extracted_places_from_result,
 )
 from app.infra.kakao import KakaoNonRetryableError
 
@@ -94,15 +96,16 @@ class JobProcessor:
         try:
             crawl_artifact = await crawl_and_parse(job.source_url, self._settings)
             extraction_result = await self._extract_result(job.source_url, crawl_artifact)
-            place_candidates, selected_place = await self._enrich_place(
+            place_candidates, selected_place, selected_places = await self._enrich_place(
                 extraction_result,
                 crawl_artifact,
             )
             logger.info(
-                "job crawl completed job_id=%s caption_len=%s place_candidates=%s",
+                "job crawl completed job_id=%s caption_len=%s place_candidates=%s selected_places=%s",
                 job.job_id,
                 len(crawl_artifact.caption or ""),
                 len(place_candidates),
+                len(selected_places),
             )
 
             await self._repository.upsert_job_result(
@@ -114,6 +117,7 @@ class JobProcessor:
                 ),
                 place_candidates=place_candidates,
                 selected_place=selected_place,
+                selected_places=selected_places,
             )
             await self._repository.mark_succeeded(job.job_id)
             elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -160,45 +164,82 @@ class JobProcessor:
         self,
         extraction_result: ExtractionResult | None,
         crawl_artifact: CrawlArtifact,
-    ) -> tuple[list[dict[str, object]], dict[str, object] | None]:
+    ) -> tuple[list[dict[str, object]], dict[str, object] | None, list[dict[str, object]]]:
         if not self._place_search_client or not extraction_result:
-            return [], None
+            return [], None, []
 
-        store_name = (extraction_result.store_name or "").strip()
+        extracted_places = extracted_places_from_result(extraction_result)
+        if not extracted_places:
+            return [], None, []
+
+        all_places: list[PlaceCandidate] = []
+        selected_places: list[dict[str, object]] = []
+        seen_candidate_keys: set[str] = set()
+        seen_selected_keys: set[str] = set()
+
+        max_places = max(1, self._settings.extraction_max_candidates)
+        for extracted_place in extracted_places[:max_places]:
+            candidate = self._build_extracted_candidate(extracted_place, crawl_artifact)
+            if not candidate:
+                continue
+            location_hints = self._build_location_hints(extracted_place.address)
+
+            try:
+                places = await self._search_places_by_hints(candidate, location_hints)
+            except KakaoNonRetryableError:
+                logger.error("kakao enrichment non-retryable failure", exc_info=True)
+                return [], None, []
+            except Exception:
+                logger.exception(
+                    "kakao enrichment failed source_keyword=%s",
+                    candidate.source_keyword,
+                )
+                continue
+
+            places = sorted(places, key=lambda place: place.confidence, reverse=True)
+            if places:
+                selected_place = as_place_dict(places[0])
+                selected_key = self._place_dedupe_key(places[0])
+                if selected_key not in seen_selected_keys:
+                    selected_places.append(selected_place)
+                    seen_selected_keys.add(selected_key)
+
+            for place in places:
+                candidate_key = self._place_dedupe_key(place)
+                if candidate_key in seen_candidate_keys:
+                    continue
+                all_places.append(place)
+                seen_candidate_keys.add(candidate_key)
+
+        place_candidates = [as_place_dict(place) for place in all_places]
+        selected_place = selected_places[0] if selected_places else None
+        return place_candidates, selected_place, selected_places
+
+    def _build_extracted_candidate(
+        self,
+        extracted_place: ExtractedPlace,
+        crawl_artifact: CrawlArtifact,
+    ) -> ExtractedCandidate | None:
+        store_name = (extracted_place.store_name or "").strip()
         if not store_name:
-            return [], None
-
-        candidate = ExtractedCandidate(
+            return None
+        return ExtractedCandidate(
             keyword=store_name,
             source_keyword=store_name,
             source_sentence=(
-                extraction_result.store_name_evidence
-                or extraction_result.address_evidence
+                extracted_place.store_name_evidence
+                or extracted_place.address_evidence
                 or crawl_artifact.caption
                 or ""
             ),
             raw_candidate=store_name,
         )
-        location_hints = self._build_location_hints(extraction_result.address)
 
-        try:
-            places = await self._search_places_by_hints(candidate, location_hints)
-        except KakaoNonRetryableError:
-            logger.error("kakao enrichment non-retryable failure", exc_info=True)
-            return [], None
-        except Exception:
-            logger.exception("kakao enrichment failed")
-            return [], None
-
-        places = sorted(places, key=lambda place: place.confidence, reverse=True)
-        places = [
-            place
-            for place in places
-            if place.confidence >= self._settings.kakao_min_place_confidence
-        ]
-        place_candidates = [as_place_dict(place) for place in places]
-        selected_place = place_candidates[0] if place_candidates else None
-        return place_candidates, selected_place
+    @staticmethod
+    def _place_dedupe_key(place: PlaceCandidate) -> str:
+        if place.kakao_place_id:
+            return f"id:{place.kakao_place_id}"
+        return f"name:{place.place_name}|{place.address_name}|{place.road_address_name}"
 
     async def _search_places(
         self,

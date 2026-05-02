@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -21,12 +21,22 @@ class ExtractionCertainty(str, Enum):
 
 
 @dataclass(slots=True)
+class ExtractedPlace:
+    store_name: str | None
+    address: str | None
+    store_name_evidence: str | None
+    address_evidence: str | None
+    certainty: ExtractionCertainty
+
+
+@dataclass(slots=True)
 class ExtractionResult:
     store_name: str | None
     address: str | None
     store_name_evidence: str | None
     address_evidence: str | None
     certainty: ExtractionCertainty
+    places: list[ExtractedPlace] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -48,6 +58,7 @@ class JobResultRecord:
     extraction_result: dict[str, Any] | None
     place_candidates: list[dict[str, Any]]
     selected_place: dict[str, Any] | None
+    selected_places: list[dict[str, Any]]
     created_at: datetime
     updated_at: datetime
 
@@ -118,6 +129,39 @@ def as_candidate_dict(candidate: ExtractedCandidate) -> dict[str, Any]:
     }
 
 
+def as_extracted_place_dict(place: ExtractedPlace) -> dict[str, Any]:
+    return {
+        "store_name": place.store_name,
+        "address": place.address,
+        "store_name_evidence": place.store_name_evidence,
+        "address_evidence": place.address_evidence,
+        "certainty": place.certainty.value,
+    }
+
+
+def extracted_places_from_result(result: ExtractionResult) -> list[ExtractedPlace]:
+    if result.places:
+        return result.places
+    if not any(
+        (
+            result.store_name,
+            result.address,
+            result.store_name_evidence,
+            result.address_evidence,
+        )
+    ):
+        return []
+    return [
+        ExtractedPlace(
+            store_name=result.store_name,
+            address=result.address,
+            store_name_evidence=result.store_name_evidence,
+            address_evidence=result.address_evidence,
+            certainty=result.certainty,
+        )
+    ]
+
+
 def as_extraction_result_dict(result: ExtractionResult) -> dict[str, Any]:
     return {
         "store_name": result.store_name,
@@ -125,4 +169,8 @@ def as_extraction_result_dict(result: ExtractionResult) -> dict[str, Any]:
         "store_name_evidence": result.store_name_evidence,
         "address_evidence": result.address_evidence,
         "certainty": result.certainty.value,
+        "places": [
+            as_extracted_place_dict(place)
+            for place in extracted_places_from_result(result)
+        ],
     }

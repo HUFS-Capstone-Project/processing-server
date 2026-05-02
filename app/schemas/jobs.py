@@ -9,12 +9,21 @@ from pydantic import BaseModel, Field, HttpUrl
 from app.domain.job.model import JobStatus
 
 
+class ExtractedPlaceResponse(BaseModel):
+    store_name: str | None
+    address: str | None
+    store_name_evidence: str | None
+    address_evidence: str | None
+    certainty: Literal["high", "medium", "low"]
+
+
 class ExtractionResultResponse(BaseModel):
     store_name: str | None
     address: str | None
     store_name_evidence: str | None
     address_evidence: str | None
     certainty: Literal["high", "medium", "low"]
+    places: list[ExtractedPlaceResponse] = Field(default_factory=list)
 
 
 class PlaceCandidateResponse(BaseModel):
@@ -69,6 +78,7 @@ class JobResultResponse(BaseModel):
     extraction_result: ExtractionResultResponse | None = None
     place_candidates: list[PlaceCandidateResponse] = Field(default_factory=list)
     selected_place: PlaceCandidateResponse | None = None
+    selected_places: list[PlaceCandidateResponse] = Field(default_factory=list)
     error_message: str | None
     updated_at: datetime
 
