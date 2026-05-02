@@ -11,14 +11,41 @@ from app.core.config import Settings
 from app.domain.job import ExtractionResult
 from app.schemas.extraction import ExtractionLLMResponse
 
-EXTRACTION_SYSTEM_PROMPT = (
-    "You extract store information from Korean restaurant social media captions. "
-    "Return only one JSON object with these exact keys: store_name, address, "
-    "store_name_evidence, address_evidence, certainty. Use null when a value is "
-    "unknown. Evidence values must be substrings copied from the input caption. "
-    "certainty must be one of high, medium, or low. Do not include explanations, "
-    "Markdown, or any text outside the JSON object."
+EXTRACTION_SYSTEM_PROMPT_TEMPLATE = (
+    "You extract place/store information from Korean social media captions. "
+    "Return only one JSON object with these exact top-level keys: store_name, "
+    "address, store_name_evidence, address_evidence, certainty, places. "
+    "places must be an array of objects. Each place object must have these exact "
+    "keys: store_name, address, store_name_evidence, address_evidence, certainty. "
+    "Extract every distinct place/store/brand that appears to be a visitable local "
+    "business, up to {max_candidates} places, preserving caption order. Captions "
+    "may contain numbered lists such as 1, 2, circled numbers, or sections such as "
+    "brand information, store information, or place information. When a place name "
+    "line is followed by an address line, pair them together. Address lines often "
+    "start with map-pin markers, address/location labels, or Korean address units "
+    "such as city, gu, gun, dong, eup, myeon, ri, ga, ro, or gil. A hashtag can be "
+    "a real store name, for example #StoreName; consider it when it names a "
+    "specific local business. Do not extract generic regional/category/promotional "
+    "hashtags such as Seoul cafe, Yeonnam cafe, dessert, hot place, date course, "
+    "travel, recommendation, or account handles as store names. If a store name is "
+    "taken from a hashtag, remove the leading # in store_name but keep the original "
+    "hashtag substring in store_name_evidence. Do not invent missing values. Use "
+    "null when unknown. Evidence values must be exact substrings copied from the "
+    "input caption. certainty must be one of high, medium, or low. The top-level "
+    "legacy fields store_name, address, store_name_evidence, address_evidence, and "
+    "certainty must mirror the first item in places, or null/low when places is "
+    "empty. If no place is found, return places as an empty array. Do not include "
+    "explanations, Markdown, or any text outside the JSON object."
 )
+
+
+def build_extraction_system_prompt(max_candidates: int) -> str:
+    return EXTRACTION_SYSTEM_PROMPT_TEMPLATE.format(
+        max_candidates=max(1, max_candidates),
+    )
+
+
+EXTRACTION_SYSTEM_PROMPT = build_extraction_system_prompt(12)
 
 
 class HFExtractionError(Exception):
@@ -85,9 +112,10 @@ class HFExtractionClient:
         generated_json = extract_json_object(generated_text)
 
         try:
-            return ExtractionLLMResponse.model_validate(generated_json).to_domain()
+            result = ExtractionLLMResponse.model_validate(generated_json).to_domain()
         except ValidationError as exc:
             raise HFExtractionError("HF response failed schema validation") from exc
+        return self._limit_places(result)
 
     def _build_payload(
         self,
@@ -100,12 +128,31 @@ class HFExtractionClient:
         return {
             "model": self._settings.hf_extraction_model_name,
             "messages": [
-                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": build_extraction_system_prompt(
+                        self._settings.extraction_max_candidates,
+                    ),
+                },
                 {"role": "user", "content": text},
             ],
             "temperature": 0.0,
             "max_tokens": self._settings.hf_extraction_max_new_tokens,
         }
+
+    def _limit_places(self, result: ExtractionResult) -> ExtractionResult:
+        max_places = max(1, self._settings.extraction_max_candidates)
+        if len(result.places) <= max_places:
+            return result
+
+        result.places = result.places[:max_places]
+        first_place = result.places[0]
+        result.store_name = first_place.store_name
+        result.address = first_place.address
+        result.store_name_evidence = first_place.store_name_evidence
+        result.address_evidence = first_place.address_evidence
+        result.certainty = first_place.certainty
+        return result
 
 
 def extract_text_from_hf_payload(payload: Any) -> str:

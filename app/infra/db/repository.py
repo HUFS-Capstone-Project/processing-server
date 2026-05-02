@@ -108,12 +108,21 @@ class JobRepository:
         extraction_result: dict[str, Any] | None = None,
         place_candidates: list[dict[str, Any]] | None = None,
         selected_place: dict[str, Any] | None = None,
+        selected_places: list[dict[str, Any]] | None = None,
     ) -> JobResultRecord:
         sql = f"""
         INSERT INTO {self._results_table}
-            (job_id, caption, instagram_meta, extraction_result, place_candidates, selected_place)
+            (
+                job_id,
+                caption,
+                instagram_meta,
+                extraction_result,
+                place_candidates,
+                selected_place,
+                selected_places
+            )
         VALUES
-            ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb)
+            ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb)
         ON CONFLICT (job_id)
         DO UPDATE SET
             caption = EXCLUDED.caption,
@@ -121,6 +130,7 @@ class JobRepository:
             extraction_result = EXCLUDED.extraction_result,
             place_candidates = EXCLUDED.place_candidates,
             selected_place = EXCLUDED.selected_place,
+            selected_places = EXCLUDED.selected_places,
             updated_at = NOW()
         RETURNING *
         """
@@ -132,6 +142,7 @@ class JobRepository:
             json.dumps(extraction_result) if extraction_result is not None else None,
             json.dumps(place_candidates or []),
             json.dumps(selected_place) if selected_place is not None else None,
+            json.dumps(selected_places or []),
         )
         if row is None:
             raise RuntimeError("Failed to upsert job result")
@@ -156,6 +167,7 @@ class JobRepository:
             extraction_result=self._json_to_dict(row["extraction_result"]),
             place_candidates=self._json_to_list(row["place_candidates"]),
             selected_place=self._json_to_dict(row["selected_place"]),
+            selected_places=self._json_to_list(row["selected_places"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

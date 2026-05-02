@@ -52,6 +52,7 @@ class FakePool:
             "extraction_result": args[3],
             "place_candidates": args[4],
             "selected_place": args[5],
+            "selected_places": args[6],
             "created_at": now,
             "updated_at": now,
         }
@@ -68,6 +69,15 @@ def test_upsert_job_result_persists_extraction_result() -> None:
         "store_name_evidence": "Common Mansion",
         "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
         "certainty": "high",
+        "places": [
+            {
+                "store_name": "Common Mansion",
+                "address": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+                "store_name_evidence": "Common Mansion",
+                "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+                "certainty": "high",
+            }
+        ],
     }
     selected_place = {
         "kakao_place_id": "123",
@@ -95,6 +105,7 @@ def test_upsert_job_result_persists_extraction_result() -> None:
             extraction_result=extraction_result,
             place_candidates=[selected_place],
             selected_place=selected_place,
+            selected_places=[selected_place],
         )
     )
 
@@ -108,10 +119,12 @@ def test_upsert_job_result_persists_extraction_result() -> None:
         json.dumps(extraction_result),
         json.dumps([selected_place]),
         json.dumps(selected_place),
+        json.dumps([selected_place]),
     )
     assert record.extraction_result == extraction_result
     assert record.place_candidates == [selected_place]
     assert record.selected_place == selected_place
+    assert record.selected_places == [selected_place]
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
@@ -124,6 +137,7 @@ def test_get_job_result_maps_extraction_result() -> None:
         "store_name_evidence": None,
         "address_evidence": None,
         "certainty": "low",
+        "places": [],
     }
     pool = FakePool(
         {
@@ -133,6 +147,7 @@ def test_get_job_result_maps_extraction_result() -> None:
             "extraction_result": json.dumps(extraction_result),
             "place_candidates": json.dumps([]),
             "selected_place": None,
+            "selected_places": json.dumps([]),
             "created_at": now,
             "updated_at": now,
         }
@@ -145,3 +160,4 @@ def test_get_job_result_maps_extraction_result() -> None:
     assert record.extraction_result == extraction_result
     assert record.place_candidates == []
     assert record.selected_place is None
+    assert record.selected_places == []

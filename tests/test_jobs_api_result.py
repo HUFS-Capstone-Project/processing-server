@@ -39,6 +39,15 @@ def test_get_job_result_returns_extraction_result() -> None:
         "store_name_evidence": "Common Mansion",
         "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
         "certainty": "high",
+        "places": [
+            {
+                "store_name": "Common Mansion",
+                "address": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+                "store_name_evidence": "Common Mansion",
+                "address_evidence": "1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+                "certainty": "high",
+            }
+        ],
     }
     selected_place = {
         "kakao_place_id": "123",
@@ -78,6 +87,7 @@ def test_get_job_result_returns_extraction_result() -> None:
             extraction_result=extraction_result,
             place_candidates=[selected_place],
             selected_place=selected_place,
+            selected_places=[selected_place],
             created_at=now,
             updated_at=now,
         )
@@ -93,3 +103,4 @@ def test_get_job_result_returns_extraction_result() -> None:
     assert response.json()["extraction_result"] == extraction_result
     assert response.json()["place_candidates"] == [selected_place]
     assert response.json()["selected_place"] == selected_place
+    assert response.json()["selected_places"] == [selected_place]
