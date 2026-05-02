@@ -57,7 +57,6 @@ class JobResultRecord:
     instagram_meta: dict[str, Any] | None
     extraction_result: dict[str, Any] | None
     place_candidates: list[dict[str, Any]]
-    selected_place: dict[str, Any] | None
     selected_places: list[dict[str, Any]]
     created_at: datetime
     updated_at: datetime

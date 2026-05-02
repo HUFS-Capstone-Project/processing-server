@@ -49,7 +49,7 @@ def test_get_job_result_returns_extraction_result() -> None:
             }
         ],
     }
-    selected_place = {
+    place_result = {
         "kakao_place_id": "123",
         "place_name": "Common Mansion",
         "category_name": "음식점 > 카페",
@@ -85,9 +85,8 @@ def test_get_job_result_returns_extraction_result() -> None:
             caption="Common Mansion review",
             instagram_meta={"media_type": "reel"},
             extraction_result=extraction_result,
-            place_candidates=[selected_place],
-            selected_place=selected_place,
-            selected_places=[selected_place],
+            place_candidates=[place_result],
+            selected_places=[place_result],
             created_at=now,
             updated_at=now,
         )
@@ -101,6 +100,6 @@ def test_get_job_result_returns_extraction_result() -> None:
 
     assert response.status_code == 200
     assert response.json()["extraction_result"] == extraction_result
-    assert response.json()["place_candidates"] == [selected_place]
-    assert response.json()["selected_place"] == selected_place
-    assert response.json()["selected_places"] == [selected_place]
+    assert response.json()["place_candidates"] == [place_result]
+    assert "selected_place" not in response.json()
+    assert response.json()["selected_places"] == [place_result]

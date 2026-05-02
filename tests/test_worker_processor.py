@@ -336,7 +336,7 @@ def test_processor_tries_broader_location_hints_before_keyword_only(monkeypatch)
         ["서울 서초구"],
     ]
     assert repo.saved_result is not None
-    assert repo.saved_result["selected_place"]["confidence"] == 0.95
+    assert "selected_place" not in repo.saved_result
     assert repo.saved_result["selected_places"][0]["confidence"] == 0.95
 
 
@@ -405,9 +405,9 @@ def test_processor_enriches_place_from_extraction_result(monkeypatch) -> None:
     assert repo.succeeded is True
     assert repo.saved_result is not None
     assert len(repo.saved_result["place_candidates"]) == 2
-    assert repo.saved_result["selected_place"]["confidence"] == 0.95
-    assert repo.saved_result["selected_place"]["kakao_place_id"] == "123"
+    assert "selected_place" not in repo.saved_result
     assert repo.saved_result["selected_places"][0]["confidence"] == 0.95
+    assert repo.saved_result["selected_places"][0]["kakao_place_id"] == "123"
     assert repo.failed is None
 
 
@@ -488,7 +488,8 @@ def test_processor_enriches_multiple_places_from_extraction_result(monkeypatch) 
     assert [place["place_name"] for place in repo.saved_result["selected_places"]] == [
         name for name, _ in extracted_places
     ]
-    assert repo.saved_result["selected_place"]["place_name"] == "플루밍"
+    assert "selected_place" not in repo.saved_result
+    assert repo.saved_result["selected_places"][0]["place_name"] == "플루밍"
     assert [
         place["store_name"]
         for place in repo.saved_result["extraction_result"]["places"]
@@ -535,7 +536,7 @@ def test_processor_succeeds_when_place_search_fails(monkeypatch) -> None:
     assert repo.succeeded is True
     assert repo.saved_result is not None
     assert repo.saved_result["place_candidates"] == []
-    assert repo.saved_result["selected_place"] is None
+    assert "selected_place" not in repo.saved_result
     assert repo.saved_result["selected_places"] == []
     assert repo.failed is None
 
@@ -579,7 +580,7 @@ def test_processor_drops_low_confidence_place_candidates(monkeypatch) -> None:
     assert repo.succeeded is True
     assert repo.saved_result is not None
     assert repo.saved_result["place_candidates"] == []
-    assert repo.saved_result["selected_place"] is None
+    assert "selected_place" not in repo.saved_result
     assert repo.saved_result["selected_places"] == []
     assert repo.failed is None
 

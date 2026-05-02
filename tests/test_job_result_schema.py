@@ -56,12 +56,11 @@ def test_job_result_response_allows_missing_extraction_result() -> None:
 
     assert response.extraction_result is None
     assert response.place_candidates == []
-    assert response.selected_place is None
     assert response.selected_places == []
 
 
 def test_job_result_response_accepts_kakao_place_result() -> None:
-    selected_place = {
+    place_result = {
         "kakao_place_id": "123",
         "place_name": "커먼맨션",
         "category_name": "음식점 > 카페",
@@ -87,16 +86,15 @@ def test_job_result_response_accepts_kakao_place_result() -> None:
         caption="caption",
         instagram_meta=None,
         extraction_result=None,
-        place_candidates=[selected_place],
-        selected_place=selected_place,
-        selected_places=[selected_place],
+        place_candidates=[place_result],
+        selected_places=[place_result],
         error_message=None,
         updated_at=datetime.now(timezone.utc),
     )
 
     dumped = response.model_dump()
 
-    assert dumped["selected_place"]["place_name"] == "커먼맨션"
+    assert "selected_place" not in dumped
     assert dumped["selected_places"][0]["place_name"] == "커먼맨션"
-    assert dumped["selected_place"]["category_group_code"] == "CE7"
+    assert dumped["selected_places"][0]["category_group_code"] == "CE7"
     assert dumped["place_candidates"][0]["road_address_name"] == "서울 종로구 새문안로 1"

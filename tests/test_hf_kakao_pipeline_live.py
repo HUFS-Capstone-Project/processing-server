@@ -209,7 +209,7 @@ async def _run_live_pipeline_case(
         caption=case.caption,
         instagram_meta={"caption": case.caption},
     )
-    place_candidates, selected_place, selected_places = await processor._enrich_place(
+    place_candidates, selected_places = await processor._enrich_place(
         extraction_result,
         crawl_artifact,
     )
@@ -241,9 +241,8 @@ async def _run_live_pipeline_case(
         "kakao_calls": kakao.calls,
         "place_candidates": place_candidates,
         "place_candidate_count": len(place_candidates),
-        "selected_place": selected_place,
         "selected_places": selected_places,
-        "selected_place_count": len(selected_places),
+        "selected_places_count": len(selected_places),
         "selected_matches": selected_matches,
     }
 
@@ -339,9 +338,8 @@ async def _run_all_live_pipeline_cases(
                     "kakao_calls": [],
                     "place_candidates": [],
                     "place_candidate_count": 0,
-                    "selected_place": None,
                     "selected_places": [],
-                    "selected_place_count": 0,
+                    "selected_places_count": 0,
                     "selected_matches": {
                         name: False for name in case.expected_place_names
                     },
