@@ -147,6 +147,27 @@ class KeywordAwarePlaceSearchClient:
         return FakePlaceSearchResult(self.places_by_keyword.get(candidate.keyword, []))
 
 
+class KeywordAndHintAwarePlaceSearchClient:
+    def __init__(
+        self,
+        places_by_call: dict[tuple[str, tuple[str, ...]], list[PlaceCandidate]],
+    ) -> None:
+        self.places_by_call = places_by_call
+        self.calls: list[dict[str, object]] = []
+
+    async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
+        self.calls.append(
+            {
+                "keyword": candidate.keyword,
+                "source_keyword": candidate.source_keyword,
+                "location_hints": location_hints,
+            }
+        )
+        return FakePlaceSearchResult(
+            self.places_by_call.get((candidate.keyword, tuple(location_hints)), [])
+        )
+
+
 class FailingPlaceSearchClient:
     async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
         raise RuntimeError("kakao unavailable")
@@ -338,6 +359,72 @@ def test_processor_tries_broader_location_hints_before_keyword_only(monkeypatch)
     assert repo.saved_result is not None
     assert "selected_place" not in repo.saved_result
     assert repo.saved_result["selected_places"][0]["confidence"] == 0.95
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_falls_back_to_address_only_search(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings(kakao_min_place_confidence=0.7)
+    address = "경북 경주시 내남면 포석로 110-32"
+    extractor = FakeExtractionClient(
+        ExtractionResult(
+            store_name="수뢰뫼",
+            address=address,
+            store_name_evidence="수뢰뫼",
+            address_evidence=f"📍위치 : {address}",
+            certainty=ExtractionCertainty.HIGH,
+        )
+    )
+    place = _place_candidate(
+        confidence=0.8,
+        kakao_place_id="456",
+        place_name="수뢰뫼",
+        source_keyword="수뢰뫼",
+        address_name="경북 경주시 내남면 용장리 114-3",
+        road_address_name=address,
+    )
+    place_search = KeywordAndHintAwarePlaceSearchClient(
+        {
+            (address, (address,)): [place],
+        }
+    )
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            text=f"수뢰뫼\n📍위치 : {address}",
+            media_type="reel",
+            caption=f"수뢰뫼\n📍위치 : {address}",
+            instagram_meta=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+        place_search_client=place_search,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert [
+        {
+            "keyword": call["keyword"],
+            "location_hints": call["location_hints"],
+        }
+        for call in place_search.calls
+    ] == [
+        {"keyword": "수뢰뫼", "location_hints": [address]},
+        {"keyword": "수뢰뫼", "location_hints": []},
+        {"keyword": address, "location_hints": [address]},
+    ]
+    assert repo.saved_result is not None
+    assert repo.saved_result["selected_places"][0]["place_name"] == "수뢰뫼"
+    assert repo.saved_result["selected_places"][0]["source_keyword"] == "수뢰뫼"
 
 
 def test_build_location_hints_from_korean_address() -> None:

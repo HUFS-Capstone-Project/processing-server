@@ -212,6 +212,9 @@ def test_build_extraction_system_prompt_mentions_hashtag_store_names() -> None:
     prompt = build_extraction_system_prompt(6)
 
     assert "hashtag" in prompt
+    assert "First inspect hashtags" in prompt
+    assert "prioritize it when it appears on the same line as a map-pin" in prompt
+    assert "Prefer specific proper-noun hashtags" in prompt
     assert "remove the leading #" in prompt
     assert "up to 6 places" in prompt
 
