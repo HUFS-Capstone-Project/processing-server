@@ -260,7 +260,23 @@ class JobProcessor:
                 return qualified
 
         places = await self._search_places(candidate, [])
-        return self._qualified_places(places)
+        qualified = self._qualified_places(places)
+        if qualified:
+            return qualified
+
+        for hint in location_hints:
+            address_candidate = ExtractedCandidate(
+                keyword=hint,
+                source_keyword=candidate.source_keyword,
+                source_sentence=candidate.source_sentence,
+                raw_candidate=candidate.raw_candidate,
+            )
+            places = await self._search_places(address_candidate, [hint])
+            qualified = self._qualified_places(places)
+            if qualified:
+                return qualified
+
+        return []
 
     def _qualified_places(self, places: list[PlaceCandidate]) -> list[PlaceCandidate]:
         return [

@@ -160,3 +160,28 @@ def test_kakao_local_client_boosts_exact_address_match_above_threshold() -> None
 
     assert result.places[0].place_name == "오복닭집"
     assert result.places[0].confidence >= 0.7
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_kakao_local_client_deduplicates_address_only_query() -> None:
+    seen_requests: list[httpx.Request] = []
+    address = "경북 경주시 내남면 포석로 110-32"
+    candidate = ExtractedCandidate(
+        keyword=address,
+        source_keyword="수뢰뫼",
+        source_sentence="(4) 수뢰뫼",
+        raw_candidate="수뢰뫼",
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append(request)
+        return httpx.Response(200, json={"documents": [], "meta": {"total_count": 0}})
+
+    client = KakaoLocalClient(
+        _settings(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    _run(client.search_places(candidate, location_hints=[address]))
+
+    assert seen_requests[0].url.params["query"] == address

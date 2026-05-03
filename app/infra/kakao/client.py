@@ -78,6 +78,8 @@ class KakaoLocalClient:
         if not location_hints:
             return keyword
         top_hint = location_hints[0]
+        if _normalize_address_text(keyword) == _normalize_address_text(top_hint):
+            return top_hint
         return f"{top_hint} {keyword}".strip()
 
     def _to_places(
