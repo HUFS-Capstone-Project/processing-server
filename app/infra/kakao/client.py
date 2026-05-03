@@ -137,7 +137,9 @@ class KakaoLocalClient:
                 str(doc.get("road_address_name") or ""),
             ]
         )
-        if any(hint.lower() in address_blob.lower() for hint in location_hints[:2]):
+        if _has_exact_address_hint(address_blob, location_hints):
+            score += 0.25
+        elif any(hint.lower() in address_blob.lower() for hint in location_hints[:2]):
             score += 0.1
 
         return max(0.0, min(0.99, score))
@@ -145,3 +147,25 @@ class KakaoLocalClient:
 
 def _normalize_place_text(value: str) -> str:
     return "".join((value or "").lower().split())
+
+
+def _normalize_address_text(value: str) -> str:
+    return "".join(
+        char.lower()
+        for char in value or ""
+        if char.isalnum()
+    )
+
+
+def _has_exact_address_hint(address_blob: str, location_hints: list[str]) -> bool:
+    normalized_address = _normalize_address_text(address_blob)
+    if not normalized_address:
+        return False
+
+    for hint in location_hints[:2]:
+        normalized_hint = _normalize_address_text(hint)
+        if not normalized_hint or not any(char.isdigit() for char in normalized_hint):
+            continue
+        if normalized_hint in normalized_address or normalized_address in normalized_hint:
+            return True
+    return False

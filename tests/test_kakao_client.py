@@ -112,3 +112,51 @@ def test_kakao_local_client_requires_api_key() -> None:
 
     with pytest.raises(KakaoNonRetryableError):
         _run(client.search_places(_candidate(), []))
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_kakao_local_client_boosts_exact_address_match_above_threshold() -> None:
+    candidate = ExtractedCandidate(
+        keyword="중앙시장 오복닭집",
+        source_keyword="중앙시장 오복닭집",
+        source_sentence="(2) 중앙시장 오복닭집",
+        raw_candidate="중앙시장 오복닭집",
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "documents": [
+                    {
+                        "id": "456",
+                        "place_name": "오복닭집",
+                        "category_name": "음식점 > 치킨",
+                        "category_group_code": "FD6",
+                        "category_group_name": "음식점",
+                        "phone": "054-000-0000",
+                        "address_name": "경북 경주시 성건동 339-2",
+                        "road_address_name": "경북 경주시 금성로 295",
+                        "x": "129.0",
+                        "y": "35.0",
+                        "place_url": "https://place.map.kakao.com/456",
+                    }
+                ],
+                "meta": {"total_count": 1},
+            },
+        )
+
+    client = KakaoLocalClient(
+        _settings(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = _run(
+        client.search_places(
+            candidate,
+            location_hints=["경북 경주시 금성로 295"],
+        )
+    )
+
+    assert result.places[0].place_name == "오복닭집"
+    assert result.places[0].confidence >= 0.7
