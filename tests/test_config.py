@@ -46,3 +46,10 @@ def test_production_private_api_requires_internal_key() -> None:
     )
     with pytest.raises(ValueError, match="INTERNAL_API_KEY"):
         validate_production_internal_api_key(s)
+
+
+def test_default_hf_extraction_model_uses_qwen_coder_32b() -> None:
+    assert (
+        Settings.model_fields["hf_extraction_model_name"].default
+        == "Qwen/Qwen2.5-Coder-32B-Instruct"
+    )

@@ -94,7 +94,7 @@ class Settings(BaseSettings):
 
     hf_extraction_endpoint_url: str = ""
     hf_extraction_api_token: str = ""
-    hf_extraction_model_name: str = "Qwen/Qwen2.5-3B-Instruct"
+    hf_extraction_model_name: str = "Qwen/Qwen2.5-Coder-32B-Instruct"
     hf_extraction_timeout_seconds: int = 20
     hf_extraction_max_new_tokens: int = 2048
 
