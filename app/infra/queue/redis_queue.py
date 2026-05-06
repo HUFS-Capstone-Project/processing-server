@@ -32,6 +32,16 @@ class RedisJobQueue:
             processing_key=settings.queue_processing_key,
         )
 
+    @classmethod
+    def from_business_hours_settings(cls, settings: Settings) -> "RedisJobQueue":
+        client = Redis.from_url(settings.queue_redis_url, decode_responses=True)
+        return cls(
+            client,
+            ready_key=settings.business_hours_queue_ready_key,
+            delayed_key=settings.business_hours_queue_delayed_key,
+            processing_key=settings.business_hours_queue_processing_key,
+        )
+
     async def close(self) -> None:
         await self._client.aclose()
 

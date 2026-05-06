@@ -55,6 +55,18 @@ class Settings(BaseSettings):
     queue_pop_timeout_seconds: int = 5
     queue_promote_batch_size: int = 50
 
+    business_hours_queue_namespace: str = "processing:business-hours"
+    business_hours_queue_pop_timeout_seconds: int = 5
+    business_hours_worker_concurrency: int = 1
+    business_hours_worker_idle_sleep_seconds: float = 1.0
+    business_hours_crawl_timeout_seconds: int = 15
+    business_hours_fetching_stale_timeout_seconds: int = 900
+    business_hours_success_ttl_seconds: int = 14 * 24 * 60 * 60
+    business_hours_not_found_ttl_seconds: int = 3 * 24 * 60 * 60
+    business_hours_crawl_failed_ttl_seconds: int = 6 * 60 * 60
+    business_hours_parse_failed_ttl_seconds: int = 24 * 60 * 60
+    business_hours_enqueue_failed_ttl_seconds: int = 10 * 60
+
     worker_max_attempts: int = 3
     worker_retry_base_seconds: int = 10
     worker_retry_max_seconds: int = 300
@@ -136,6 +148,18 @@ class Settings(BaseSettings):
     @property
     def queue_processing_key(self) -> str:
         return f"{self.queue_namespace}:processing"
+
+    @property
+    def business_hours_queue_ready_key(self) -> str:
+        return f"{self.business_hours_queue_namespace}:ready"
+
+    @property
+    def business_hours_queue_delayed_key(self) -> str:
+        return f"{self.business_hours_queue_namespace}:delayed"
+
+    @property
+    def business_hours_queue_processing_key(self) -> str:
+        return f"{self.business_hours_queue_namespace}:processing"
 
     @property
     def instagram_block_resource_type_set(self) -> set[str]:

@@ -53,3 +53,16 @@ def test_default_hf_extraction_model_uses_qwen_coder_32b() -> None:
         Settings.model_fields["hf_extraction_model_name"].default
         == "Qwen/Qwen2.5-Coder-32B-Instruct"
     )
+
+
+def test_business_hours_defaults_are_separate_from_link_queue() -> None:
+    settings = Settings(
+        queue_namespace="processing:jobs",
+        business_hours_queue_namespace="processing:business-hours",
+    )
+
+    assert settings.queue_namespace == "processing:jobs"
+    assert settings.business_hours_queue_namespace == "processing:business-hours"
+    assert settings.business_hours_worker_concurrency == 1
+    assert settings.business_hours_fetching_stale_timeout_seconds == 900
+    assert settings.business_hours_success_ttl_seconds == 14 * 24 * 60 * 60
