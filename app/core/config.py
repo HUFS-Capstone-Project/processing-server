@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     business_hours_worker_concurrency: int = 1
     business_hours_worker_idle_sleep_seconds: float = 1.0
     business_hours_crawl_timeout_seconds: int = 15
+    business_hours_crawl_navigation_timeout_seconds: int = 8
+    business_hours_crawl_selector_wait_timeout_ms: int = 1000
+    business_hours_crawl_fallback_wait_timeout_ms: int = 500
+    business_hours_crawl_networkidle_enabled: bool = False
+    business_hours_crawl_networkidle_timeout_ms: int = 3000
     business_hours_fetching_stale_timeout_seconds: int = 900
     business_hours_success_ttl_seconds: int = 14 * 24 * 60 * 60
     business_hours_not_found_ttl_seconds: int = 3 * 24 * 60 * 60

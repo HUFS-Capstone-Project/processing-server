@@ -211,6 +211,39 @@ class BusinessHoursRepository:
                     raise RuntimeError("Failed to claim business hours detail")
                 return self._to_job_record(job_row), self._to_detail_record(detail_row)
 
+    async def recover_stale_processing_jobs(self, stale_after_seconds: int) -> list[UUID]:
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                rows = await conn.fetch(
+                    f"""
+                    WITH recovered AS (
+                        UPDATE {self._jobs_table}
+                        SET
+                            status = 'QUEUED',
+                            error_code = NULL,
+                            error_message = NULL
+                        WHERE status = 'PROCESSING'
+                          AND updated_at <= NOW() - ($1 * INTERVAL '1 second')
+                        RETURNING job_id, kakao_place_id
+                    ),
+                    updated_details AS (
+                        UPDATE {self._details_table} d
+                        SET
+                            business_hours_status = 'PENDING',
+                            last_error = NULL,
+                            version = version + 1
+                        FROM recovered r
+                        WHERE d.kakao_place_id = r.kakao_place_id
+                          AND d.business_hours_job_id = r.job_id
+                          AND d.business_hours_status = 'FETCHING'
+                        RETURNING d.kakao_place_id
+                    )
+                    SELECT job_id FROM recovered
+                    """,
+                    max(1, stale_after_seconds),
+                )
+        return [row["job_id"] for row in rows]
+
     async def complete_business_hours_job(
         self,
         *,

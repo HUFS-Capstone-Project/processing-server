@@ -53,6 +53,18 @@ class FakeRedis:
         self.lists.setdefault(destination, []).append(value)
         return value
 
+    async def lmove(self, source, destination, src="LEFT", dest="RIGHT"):
+        if not self.lists.get(source):
+            return None
+        value = self.lists[source].pop(0)
+        self.lists.setdefault(destination, []).append(value)
+        return value
+
+    async def lpop(self, key):
+        if not self.lists.get(key):
+            return None
+        return self.lists[key].pop(0)
+
     async def lrem(self, key, count, value):
         values = self.lists.get(key, [])
         removed = 0
@@ -99,6 +111,19 @@ def test_dequeue_moves_ready_to_processing_and_ack_removes() -> None:
     assert redis.lists["q:processing"] == []
 
 
+def test_dequeue_nowait_moves_ready_to_processing_without_blocking() -> None:
+    redis = FakeRedis()
+    queue = RedisJobQueue(redis, ready_key="q:ready", processing_key="q:processing", delayed_key="q:delayed")
+    job_id = uuid4()
+
+    _run(queue.enqueue(job_id))
+    dequeued = _run(queue.dequeue(0))
+
+    assert dequeued == job_id
+    assert redis.lists["q:ready"] == []
+    assert redis.lists["q:processing"][0].startswith(str(job_id))
+
+
 def test_retry_later_moves_processing_to_delayed() -> None:
     redis = FakeRedis()
     queue = RedisJobQueue(redis, ready_key="q:ready", processing_key="q:processing", delayed_key="q:delayed")
@@ -117,6 +142,19 @@ def test_recover_stale_processing_jobs_requeues_unstamped_item() -> None:
     queue = RedisJobQueue(redis, ready_key="q:ready", processing_key="q:processing", delayed_key="q:delayed")
     job_id = uuid4()
     redis.lists["q:processing"] = [str(job_id)]
+
+    moved = _run(queue.recover_stale_processing_jobs(60))
+
+    assert moved == 1
+    assert redis.lists["q:ready"] == [str(job_id)]
+    assert redis.lists["q:processing"] == []
+
+
+def test_recover_stale_processing_jobs_requeues_old_stamped_item() -> None:
+    redis = FakeRedis()
+    queue = RedisJobQueue(redis, ready_key="q:ready", processing_key="q:processing", delayed_key="q:delayed")
+    job_id = uuid4()
+    redis.lists["q:processing"] = [f"{job_id}|1"]
 
     moved = _run(queue.recover_stale_processing_jobs(60))
 

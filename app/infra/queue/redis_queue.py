@@ -68,20 +68,23 @@ class RedisJobQueue:
         return await self.dequeue_for_processing(timeout_seconds)
 
     async def dequeue_for_processing(self, timeout_seconds: int) -> UUID | None:
-        try:
-            raw = await self._client.blmove(
-                self._ready_key,
-                self._processing_key,
-                timeout=max(1, timeout_seconds),
-                src="LEFT",
-                dest="RIGHT",
-            )
-        except AttributeError:
-            raw = await self._client.brpoplpush(
-                self._ready_key,
-                self._processing_key,
-                timeout=max(1, timeout_seconds),
-            )
+        if timeout_seconds <= 0:
+            raw = await self._dequeue_nowait()
+        else:
+            try:
+                raw = await self._client.blmove(
+                    self._ready_key,
+                    self._processing_key,
+                    timeout=max(1, timeout_seconds),
+                    src="LEFT",
+                    dest="RIGHT",
+                )
+            except AttributeError:
+                raw = await self._client.brpoplpush(
+                    self._ready_key,
+                    self._processing_key,
+                    timeout=max(1, timeout_seconds),
+                )
         if not raw:
             return None
         job_id = self._parse_job_id(raw)
@@ -91,6 +94,20 @@ class RedisJobQueue:
             await self._client.rpush(self._processing_key, stamped)
         logger.info("queue action=dequeue job_id=%s processing_key=%s", job_id, self._processing_key)
         return job_id
+
+    async def _dequeue_nowait(self) -> str | None:
+        try:
+            return await self._client.lmove(
+                self._ready_key,
+                self._processing_key,
+                src="LEFT",
+                dest="RIGHT",
+            )
+        except AttributeError:
+            raw = await self._client.lpop(self._ready_key)
+            if raw:
+                await self._client.rpush(self._processing_key, raw)
+            return raw
 
     async def ack(self, job_id: UUID) -> None:
         removed = await self._remove_processing_item(job_id)

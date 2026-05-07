@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+from uuid import uuid4
+
 from app.domain.business_hours import BusinessHoursFetchStatus
 from app.services.business_hours import parse_kakao_place_business_hours_html
+from app.services.business_hours import kakao_place
 
 
 FOLD_DETAIL_HTML = """
@@ -283,3 +287,130 @@ def test_kakao_place_parser_extracts_last_order_from_second_detail_text() -> Non
         ]
     }
     assert result.raw_text == "목(5/7) 09:00 ~ 23:30"
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+class FakePage:
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
+        self.calls = []
+
+    async def goto(self, url, wait_until, timeout):
+        self.calls.append(("goto", url, wait_until, timeout))
+
+    async def wait_for_load_state(self, state, timeout):
+        self.calls.append(("wait_for_load_state", state, timeout))
+
+    async def wait_for_selector(self, selector, timeout):
+        self.calls.append(("wait_for_selector", selector, timeout))
+        raise kakao_place.PlaywrightTimeoutError("selector timeout")
+
+    async def wait_for_timeout(self, timeout):
+        self.calls.append(("wait_for_timeout", timeout))
+
+    async def evaluate(self, script):
+        self.calls.append(("evaluate", script))
+        if self.payloads:
+            return self.payloads.pop(0)
+        return None
+
+
+class FakeBrowser:
+    def __init__(self, page):
+        self.page = page
+        self.closed = False
+
+    async def new_page(self, locale):
+        return self.page
+
+    async def close(self):
+        self.closed = True
+
+
+class FakeChromium:
+    def __init__(self, browser):
+        self.browser = browser
+
+    async def launch(self, headless, args):
+        return self.browser
+
+
+class FakePlaywright:
+    def __init__(self, browser):
+        self.chromium = FakeChromium(browser)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+
+def test_kakao_place_crawler_exits_early_without_networkidle(monkeypatch) -> None:
+    payload = [
+        {
+            "dayText": "월",
+            "hoursText": "09:00 ~ 21:00",
+            "detailTexts": ["09:00 ~ 21:00"],
+        }
+    ]
+    page = FakePage([payload])
+    browser = FakeBrowser(page)
+    monkeypatch.setattr(kakao_place, "async_playwright", lambda: FakePlaywright(browser))
+
+    result = _run(
+        kakao_place.fetch_kakao_place_business_hours(
+            f"https://place.map.kakao.com/{uuid4().int}",
+            kakao_place.Settings(
+                business_hours_crawl_networkidle_enabled=False,
+                business_hours_crawl_selector_wait_timeout_ms=10,
+                business_hours_crawl_fallback_wait_timeout_ms=10,
+            ),
+        )
+    )
+
+    assert result.status == BusinessHoursFetchStatus.SUCCEEDED
+    assert not any(call[0] == "wait_for_load_state" for call in page.calls)
+    assert not any(call[0] == "wait_for_selector" for call in page.calls)
+    assert not any(call[0] == "wait_for_timeout" for call in page.calls)
+
+
+def test_kakao_place_crawler_fallbacks_then_returns_not_found(monkeypatch) -> None:
+    page = FakePage([None, None, None])
+    browser = FakeBrowser(page)
+    monkeypatch.setattr(kakao_place, "async_playwright", lambda: FakePlaywright(browser))
+
+    result = _run(
+        kakao_place.fetch_kakao_place_business_hours(
+            f"https://place.map.kakao.com/{uuid4().int}",
+            kakao_place.Settings(
+                business_hours_crawl_selector_wait_timeout_ms=10,
+                business_hours_crawl_fallback_wait_timeout_ms=20,
+            ),
+        )
+    )
+
+    assert result.status == BusinessHoursFetchStatus.NOT_FOUND
+    assert ("wait_for_timeout", 20) in page.calls
+
+
+def test_kakao_place_crawler_returns_failed_when_operation_has_no_rows(monkeypatch) -> None:
+    page = FakePage([None, []])
+    browser = FakeBrowser(page)
+    monkeypatch.setattr(kakao_place, "async_playwright", lambda: FakePlaywright(browser))
+
+    result = _run(
+        kakao_place.fetch_kakao_place_business_hours(
+            f"https://place.map.kakao.com/{uuid4().int}",
+            kakao_place.Settings(
+                business_hours_crawl_selector_wait_timeout_ms=10,
+                business_hours_crawl_fallback_wait_timeout_ms=20,
+            ),
+        )
+    )
+
+    assert result.status == BusinessHoursFetchStatus.FAILED
+    assert not any(call == ("wait_for_timeout", 20) for call in page.calls)

@@ -49,15 +49,24 @@ class BusinessHoursRow:
     detail_texts: list[str] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class KakaoPlaceCrawlTimeouts:
+    total_ms: int
+    navigation_ms: int
+    selector_wait_ms: int
+    fallback_wait_ms: int
+    networkidle_ms: int
+
+
 async def fetch_kakao_place_business_hours(
     place_url: str,
     settings: Settings,
 ) -> BusinessHoursParseResult:
-    timeout_ms = max(1, settings.business_hours_crawl_timeout_seconds) * 1000
+    timeouts = _crawl_timeouts(settings)
     try:
         return await asyncio.wait_for(
-            _fetch_kakao_place_business_hours(place_url, timeout_ms, settings),
-            timeout=max(5, settings.business_hours_crawl_timeout_seconds + 5),
+            _fetch_kakao_place_business_hours(place_url, timeouts, settings),
+            timeout=max(1, timeouts.total_ms / 1000) + 5,
         )
     except PlaywrightTimeoutError as exc:
         raise KakaoPlaceCrawlError(str(exc)) from exc
@@ -67,22 +76,34 @@ async def fetch_kakao_place_business_hours(
 
 async def _fetch_kakao_place_business_hours(
     place_url: str,
-    timeout_ms: int,
+    timeouts: KakaoPlaceCrawlTimeouts,
     settings: Settings,
 ) -> BusinessHoursParseResult:
-    logger.info("business hours crawl start url=%s timeout_ms=%s", place_url, timeout_ms)
+    logger.info(
+        (
+            "business hours crawl start url=%s total_timeout_ms=%s navigation_timeout_ms=%s "
+            "selector_wait_timeout_ms=%s fallback_wait_timeout_ms=%s networkidle_enabled=%s"
+        ),
+        place_url,
+        timeouts.total_ms,
+        timeouts.navigation_ms,
+        timeouts.selector_wait_ms,
+        timeouts.fallback_wait_ms,
+        settings.business_hours_crawl_networkidle_enabled,
+    )
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=_browser_args(settings))
             try:
                 page = await browser.new_page(locale="ko-KR")
-                await page.goto(place_url, wait_until="domcontentloaded", timeout=timeout_ms)
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=min(3000, timeout_ms))
-                except PlaywrightTimeoutError:
-                    logger.info("business hours networkidle wait timeout url=%s", place_url)
+                await page.goto(place_url, wait_until="domcontentloaded", timeout=timeouts.navigation_ms)
+                if settings.business_hours_crawl_networkidle_enabled:
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=timeouts.networkidle_ms)
+                    except PlaywrightTimeoutError:
+                        logger.info("business hours networkidle wait timeout url=%s", place_url)
 
-                rows_payload = await page.evaluate(_DOM_ROW_EXTRACTION_JS)
+                rows_payload = await _extract_rows_when_ready(page, timeouts)
             finally:
                 await browser.close()
     except Exception as exc:
@@ -91,7 +112,31 @@ async def _fetch_kakao_place_business_hours(
         raise KakaoPlaceCrawlError(str(exc)) from exc
 
     rows = _rows_from_payload(rows_payload)
-    return parse_kakao_place_business_hours_rows(rows, operation_section_found=bool(rows_payload))
+    return parse_kakao_place_business_hours_rows(rows, operation_section_found=rows_payload is not None)
+
+
+async def _extract_rows_when_ready(page: Any, timeouts: KakaoPlaceCrawlTimeouts) -> Any:
+    rows_payload = await page.evaluate(_DOM_ROW_EXTRACTION_JS)
+    if rows_payload is not None:
+        return rows_payload
+
+    if timeouts.selector_wait_ms > 0:
+        try:
+            await page.wait_for_selector(
+                f"{OPERATION_SCOPE_SELECTOR}, {UNIT_DEFAULT_SELECTOR}",
+                timeout=timeouts.selector_wait_ms,
+            )
+        except PlaywrightTimeoutError:
+            pass
+
+    rows_payload = await page.evaluate(_DOM_ROW_EXTRACTION_JS)
+    if rows_payload is not None:
+        return rows_payload
+
+    if timeouts.fallback_wait_ms > 0:
+        await page.wait_for_timeout(timeouts.fallback_wait_ms)
+        rows_payload = await page.evaluate(_DOM_ROW_EXTRACTION_JS)
+    return rows_payload
 
 
 def parse_kakao_place_business_hours_html(html_content: str) -> BusinessHoursParseResult:
@@ -162,6 +207,33 @@ def parse_kakao_place_business_hours_rows(
         status=BusinessHoursFetchStatus.SUCCEEDED,
         business_hours=business_hours,
         raw_text="\n".join(raw_lines),
+    )
+
+
+def _crawl_timeouts(settings: Settings) -> KakaoPlaceCrawlTimeouts:
+    total_ms = max(1, settings.business_hours_crawl_timeout_seconds) * 1000
+    navigation_ms = min(
+        total_ms,
+        max(1, settings.business_hours_crawl_navigation_timeout_seconds) * 1000,
+    )
+    selector_wait_ms = min(
+        total_ms,
+        max(0, settings.business_hours_crawl_selector_wait_timeout_ms),
+    )
+    fallback_wait_ms = min(
+        total_ms,
+        max(0, settings.business_hours_crawl_fallback_wait_timeout_ms),
+    )
+    networkidle_ms = min(
+        total_ms,
+        max(0, settings.business_hours_crawl_networkidle_timeout_ms),
+    )
+    return KakaoPlaceCrawlTimeouts(
+        total_ms=total_ms,
+        navigation_ms=navigation_ms,
+        selector_wait_ms=selector_wait_ms,
+        fallback_wait_ms=fallback_wait_ms,
+        networkidle_ms=networkidle_ms,
     )
 
 
