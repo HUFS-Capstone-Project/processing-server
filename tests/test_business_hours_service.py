@@ -8,8 +8,8 @@ import pytest
 
 from app.domain.business_hours import (
     BusinessHoursCreateOutcome,
-    BusinessHoursDetailRecord,
-    BusinessHoursDetailStatus,
+    BusinessHoursPlaceCacheRecord,
+    BusinessHoursFetchStatus,
     BusinessHoursEnqueueError,
     BusinessHoursJobRecord,
     BusinessHoursJobStatus,
@@ -27,7 +27,7 @@ def _run(coro):
         pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
 
 
-def _job(status: BusinessHoursJobStatus = BusinessHoursJobStatus.PENDING) -> BusinessHoursJobRecord:
+def _job(status: BusinessHoursJobStatus = BusinessHoursJobStatus.QUEUED) -> BusinessHoursJobRecord:
     now = datetime.now(timezone.utc)
     return BusinessHoursJobRecord(
         job_id=uuid4(),
@@ -42,13 +42,13 @@ def _job(status: BusinessHoursJobStatus = BusinessHoursJobStatus.PENDING) -> Bus
 
 
 def _detail(
-    status: BusinessHoursDetailStatus = BusinessHoursDetailStatus.PENDING,
+    status: BusinessHoursFetchStatus = BusinessHoursFetchStatus.PENDING,
     *,
     expires_at: datetime | None = None,
     updated_at: datetime | None = None,
-) -> BusinessHoursDetailRecord:
+) -> BusinessHoursPlaceCacheRecord:
     now = datetime.now(timezone.utc)
-    return BusinessHoursDetailRecord(
+    return BusinessHoursPlaceCacheRecord(
         kakao_place_id="123",
         place_url="https://place.map.kakao.com/123",
         place_name="Test Place",
@@ -78,9 +78,9 @@ class FakeRepository:
     async def mark_business_hours_enqueue_failed(self, **kwargs) -> BusinessHoursCreateOutcome:
         self.enqueue_failed_called = True
         return BusinessHoursCreateOutcome(
-            job=_job(BusinessHoursJobStatus.ENQUEUE_FAILED),
-            detail=_detail(BusinessHoursDetailStatus.ENQUEUE_FAILED),
-            created=True,
+            job=_job(BusinessHoursJobStatus.FAILED),
+            place_cache=_detail(BusinessHoursFetchStatus.FAILED),
+            job_created=True,
             enqueued=False,
             cache_hit=False,
         )
@@ -103,8 +103,8 @@ def test_create_business_hours_job_enqueues_new_job() -> None:
     repo = FakeRepository(
         BusinessHoursCreateOutcome(
             job=job,
-            detail=detail,
-            created=True,
+            place_cache=detail,
+            job_created=True,
             enqueued=False,
             cache_hit=False,
         )
@@ -122,7 +122,7 @@ def test_create_business_hours_job_enqueues_new_job() -> None:
         )
     )
 
-    assert outcome.created is True
+    assert outcome.job_created is True
     assert outcome.enqueued is True
     assert queue.enqueued == [job.job_id]
 
@@ -132,8 +132,8 @@ def test_create_business_hours_job_accepts_http_kakao_url_and_normalizes_to_http
     repo = FakeRepository(
         BusinessHoursCreateOutcome(
             job=job,
-            detail=_detail(),
-            created=True,
+            place_cache=_detail(),
+            job_created=True,
             enqueued=False,
             cache_hit=False,
         )
@@ -160,14 +160,14 @@ def test_create_business_hours_job_accepts_http_kakao_url_and_normalizes_to_http
 def test_create_business_hours_job_uses_valid_cache_without_enqueue() -> None:
     job = _job(BusinessHoursJobStatus.SUCCEEDED)
     detail = _detail(
-        BusinessHoursDetailStatus.SUCCESS,
+        BusinessHoursFetchStatus.SUCCEEDED,
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
     )
     repo = FakeRepository(
         BusinessHoursCreateOutcome(
             job=job,
-            detail=detail,
-            created=False,
+            place_cache=detail,
+            job_created=False,
             enqueued=False,
             cache_hit=True,
         )
@@ -190,7 +190,15 @@ def test_create_business_hours_job_uses_valid_cache_without_enqueue() -> None:
 
 def test_create_business_hours_job_rejects_non_kakao_url() -> None:
     service = BusinessHoursService(
-        FakeRepository(BusinessHoursCreateOutcome(None, _detail(), False, False, False)),
+        FakeRepository(
+            BusinessHoursCreateOutcome(
+                job=None,
+                place_cache=_detail(),
+                job_created=False,
+                enqueued=False,
+                cache_hit=False,
+            )
+        ),
         FakeQueue(),
         stale_timeout_seconds=900,
         enqueue_failed_ttl_seconds=600,
@@ -212,8 +220,8 @@ def test_create_business_hours_job_marks_enqueue_failed() -> None:
     repo = FakeRepository(
         BusinessHoursCreateOutcome(
             job=job,
-            detail=_detail(),
-            created=True,
+            place_cache=_detail(),
+            job_created=True,
             enqueued=False,
             cache_hit=False,
         )
@@ -240,11 +248,11 @@ def test_create_business_hours_job_marks_enqueue_failed() -> None:
 
 def test_fetching_stale_timeout_detection() -> None:
     stale_detail = _detail(
-        BusinessHoursDetailStatus.FETCHING,
+        BusinessHoursFetchStatus.FETCHING,
         updated_at=datetime.now(timezone.utc) - timedelta(seconds=901),
     )
     fresh_detail = _detail(
-        BusinessHoursDetailStatus.FETCHING,
+        BusinessHoursFetchStatus.FETCHING,
         updated_at=datetime.now(timezone.utc) - timedelta(seconds=30),
     )
 

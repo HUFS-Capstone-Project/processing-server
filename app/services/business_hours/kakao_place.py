@@ -11,7 +11,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
 from app.core.config import Settings
-from app.domain.business_hours import BusinessHoursDetailStatus, BusinessHoursParseResult
+from app.domain.business_hours import BusinessHoursFetchStatus, BusinessHoursParseResult
 from app.services.crawler.playwright_service import _browser_args
 
 logger = logging.getLogger("processing.business_hours.kakao_place")
@@ -98,7 +98,7 @@ def parse_kakao_place_business_hours_html(html_content: str) -> BusinessHoursPar
     operation_html = _extract_operation_scope_html(html_content)
     if not operation_html:
         return BusinessHoursParseResult(
-            status=BusinessHoursDetailStatus.NOT_FOUND,
+            status=BusinessHoursFetchStatus.NOT_FOUND,
             business_hours=None,
             raw_text=None,
         )
@@ -106,7 +106,7 @@ def parse_kakao_place_business_hours_html(html_content: str) -> BusinessHoursPar
     line_html_blocks = _extract_line_fold_blocks(operation_html)
     if not line_html_blocks:
         return BusinessHoursParseResult(
-            status=BusinessHoursDetailStatus.PARSE_FAILED,
+            status=BusinessHoursFetchStatus.FAILED,
             business_hours=None,
             raw_text=None,
             error_message="Business hours operation section has no line_fold rows.",
@@ -124,14 +124,14 @@ def parse_kakao_place_business_hours_rows(
 ) -> BusinessHoursParseResult:
     if not operation_section_found:
         return BusinessHoursParseResult(
-            status=BusinessHoursDetailStatus.NOT_FOUND,
+            status=BusinessHoursFetchStatus.NOT_FOUND,
             business_hours=None,
             raw_text=None,
         )
 
     if not rows:
         return BusinessHoursParseResult(
-            status=BusinessHoursDetailStatus.PARSE_FAILED,
+            status=BusinessHoursFetchStatus.FAILED,
             business_hours=None,
             raw_text=None,
             error_message="Business hours operation section has no parseable line_fold rows.",
@@ -141,7 +141,7 @@ def parse_kakao_place_business_hours_rows(
     daily_hours = [entry for entry in daily_hours if entry is not None]
     if not daily_hours:
         return BusinessHoursParseResult(
-            status=BusinessHoursDetailStatus.PARSE_FAILED,
+            status=BusinessHoursFetchStatus.FAILED,
             business_hours=None,
             raw_text=None,
             error_message="Business hours line_fold rows had no valid day/hour pairs.",
@@ -159,7 +159,7 @@ def parse_kakao_place_business_hours_rows(
         ]
     }
     return BusinessHoursParseResult(
-        status=BusinessHoursDetailStatus.SUCCESS,
+        status=BusinessHoursFetchStatus.SUCCEEDED,
         business_hours=business_hours,
         raw_text="\n".join(raw_lines),
     )

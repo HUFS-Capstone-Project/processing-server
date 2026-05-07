@@ -1,11 +1,11 @@
 from app.domain.business_hours.model import (
     BusinessHoursCreateOutcome,
-    BusinessHoursDetailRecord,
-    BusinessHoursDetailStatus,
+    BusinessHoursFetchStatus,
     BusinessHoursJobRecord,
     BusinessHoursJobStatus,
     BusinessHoursJobSubmission,
     BusinessHoursParseResult,
+    BusinessHoursPlaceCacheRecord,
 )
 from app.domain.business_hours.service import (
     BusinessHoursEnqueueError,
@@ -15,12 +15,12 @@ from app.domain.business_hours.service import (
 
 __all__ = [
     "BusinessHoursCreateOutcome",
-    "BusinessHoursDetailRecord",
-    "BusinessHoursDetailStatus",
+    "BusinessHoursFetchStatus",
     "BusinessHoursJobRecord",
     "BusinessHoursJobStatus",
     "BusinessHoursJobSubmission",
     "BusinessHoursParseResult",
+    "BusinessHoursPlaceCacheRecord",
     "BusinessHoursEnqueueError",
     "BusinessHoursService",
     "InvalidBusinessHoursRequest",

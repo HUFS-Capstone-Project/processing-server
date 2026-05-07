@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 from app.domain.business_hours import (
-    BusinessHoursDetailStatus,
+    BusinessHoursFetchStatus,
     BusinessHoursJobStatus,
 )
 
@@ -21,49 +21,62 @@ class CreateBusinessHoursJobRequest(BaseModel):
 
 
 class BusinessHoursJobResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    job_id: UUID = Field(..., alias="jobId")
-    kakao_place_id: str = Field(..., alias="kakaoPlaceId")
-    place_url: str = Field(..., alias="placeUrl")
+    job_id: UUID
     status: BusinessHoursJobStatus
-    error_code: str | None = Field(default=None, alias="errorCode")
-    error_message: str | None = Field(default=None, alias="errorMessage")
-    created_at: datetime = Field(..., alias="createdAt")
-    updated_at: datetime = Field(..., alias="updatedAt")
 
 
 class BusinessHoursPlaceResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    kakao_place_id: str = Field(..., alias="kakaoPlaceId")
-    place_url: str = Field(..., alias="placeUrl")
-    place_name: str | None = Field(default=None, alias="placeName")
-    business_hours: dict[str, Any] | None = Field(default=None, alias="businessHours")
-    business_hours_raw: str | None = Field(default=None, alias="businessHoursRaw")
-    business_hours_status: BusinessHoursDetailStatus = Field(..., alias="businessHoursStatus")
-    business_hours_fetched_at: datetime | None = Field(default=None, alias="businessHoursFetchedAt")
-    business_hours_expires_at: datetime | None = Field(default=None, alias="businessHoursExpiresAt")
-    business_hours_source: str | None = Field(default=None, alias="businessHoursSource")
-    business_hours_job_id: UUID | None = Field(default=None, alias="businessHoursJobId")
-    last_error: str | None = Field(default=None, alias="lastError")
-    created_at: datetime = Field(..., alias="createdAt")
-    updated_at: datetime = Field(..., alias="updatedAt")
-    version: int
+    kakao_place_id: str
+    place_name: str | None = None
+    place_url: str
+    business_hours_status: BusinessHoursFetchStatus
+    business_hours: Any | None = None
+    business_hours_fetched_at: datetime | None = None
+    business_hours_expires_at: datetime | None = None
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 class CreateBusinessHoursJobResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
+    cache_hit: bool
     job: BusinessHoursJobResponse | None
     place: BusinessHoursPlaceResponse
-    created: bool
-    enqueued: bool
-    cache_hit: bool = Field(..., alias="cacheHit")
 
 
 class BusinessHoursJobStatusResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     job: BusinessHoursJobResponse
     place: BusinessHoursPlaceResponse | None = None
+
+
+class BusinessHoursDebugJobResponse(BaseModel):
+    job_id: UUID
+    kakao_place_id: str
+    place_url: str
+    status: BusinessHoursJobStatus
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BusinessHoursDebugPlaceResponse(BaseModel):
+    kakao_place_id: str
+    place_url: str
+    place_name: str | None = None
+    business_hours: Any | None = None
+    business_hours_raw: str | None = None
+    business_hours_status: BusinessHoursFetchStatus
+    business_hours_fetched_at: datetime | None = None
+    business_hours_expires_at: datetime | None = None
+    business_hours_source: str | None = None
+    business_hours_job_id: UUID | None = None
+    last_error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    version: int
+
+
+class BusinessHoursDebugResultResponse(BaseModel):
+    job: BusinessHoursDebugJobResponse
+    place: BusinessHoursDebugPlaceResponse | None = None
+

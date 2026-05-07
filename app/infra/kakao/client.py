@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
-from app.domain.job.model import ExtractedCandidate, PlaceCandidate
+from app.domain.job.model import PlaceSearchQuery, PlaceCandidate
 
 
 class KakaoError(Exception):
@@ -40,13 +40,13 @@ class KakaoLocalClient:
 
     async def search_places(
         self,
-        candidate: ExtractedCandidate,
+        candidate: PlaceSearchQuery,
         location_hints: list[str],
     ) -> KakaoSearchResult:
         if not self._settings.kakao_rest_api_key:
             raise KakaoNonRetryableError("KAKAO_REST_API_KEY is empty")
 
-        query = self._build_query(candidate.keyword, location_hints)
+        query = self._build_query(candidate.query, location_hints)
         params = {
             "query": query,
             "size": self._settings.kakao_max_places_per_candidate,
@@ -84,7 +84,7 @@ class KakaoLocalClient:
 
     def _to_places(
         self,
-        candidate: ExtractedCandidate,
+        candidate: PlaceSearchQuery,
         docs: list[dict[str, Any]],
         location_hints: list[str],
     ) -> list[PlaceCandidate]:
@@ -93,7 +93,7 @@ class KakaoLocalClient:
             place_name = (doc.get("place_name") or "").strip()
             if not place_name:
                 continue
-            confidence = self._score_place(candidate.keyword, place_name, idx, doc, location_hints)
+            confidence = self._score_place(candidate.query, place_name, idx, doc, location_hints)
             places.append(
                 PlaceCandidate(
                     kakao_place_id=str(doc.get("id") or ""),
@@ -108,9 +108,9 @@ class KakaoLocalClient:
                     y=(doc.get("y") or "").strip() or None,
                     place_url=(doc.get("place_url") or "").strip() or None,
                     confidence=confidence,
-                    source_keyword=candidate.source_keyword,
-                    source_sentence=candidate.source_sentence,
-                    raw_candidate=candidate.raw_candidate,
+                    query=candidate.query,
+                    evidence_text=candidate.evidence_text,
+                    original_text=candidate.original_text,
                 )
             )
         return places

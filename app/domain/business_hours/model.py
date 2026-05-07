@@ -8,21 +8,18 @@ from uuid import UUID
 
 
 class BusinessHoursJobStatus(str, Enum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class BusinessHoursFetchStatus(str, Enum):
     PENDING = "PENDING"
     FETCHING = "FETCHING"
     SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"
-    ENQUEUE_FAILED = "ENQUEUE_FAILED"
-
-
-class BusinessHoursDetailStatus(str, Enum):
-    PENDING = "PENDING"
-    FETCHING = "FETCHING"
-    SUCCESS = "SUCCESS"
     NOT_FOUND = "NOT_FOUND"
-    CRAWL_FAILED = "CRAWL_FAILED"
-    PARSE_FAILED = "PARSE_FAILED"
-    ENQUEUE_FAILED = "ENQUEUE_FAILED"
+    FAILED = "FAILED"
 
 
 @dataclass(slots=True)
@@ -38,13 +35,13 @@ class BusinessHoursJobRecord:
 
 
 @dataclass(slots=True)
-class BusinessHoursDetailRecord:
+class BusinessHoursPlaceCacheRecord:
     kakao_place_id: str
     place_url: str
     place_name: str | None
     business_hours: dict[str, Any] | None
     business_hours_raw: str | None
-    business_hours_status: BusinessHoursDetailStatus
+    business_hours_status: BusinessHoursFetchStatus
     business_hours_fetched_at: datetime | None
     business_hours_expires_at: datetime | None
     business_hours_source: str | None
@@ -58,8 +55,8 @@ class BusinessHoursDetailRecord:
 @dataclass(slots=True)
 class BusinessHoursCreateOutcome:
     job: BusinessHoursJobRecord | None
-    detail: BusinessHoursDetailRecord
-    created: bool
+    place_cache: BusinessHoursPlaceCacheRecord
+    job_created: bool
     enqueued: bool
     cache_hit: bool
 
@@ -73,7 +70,7 @@ class BusinessHoursJobSubmission:
 
 @dataclass(slots=True)
 class BusinessHoursParseResult:
-    status: BusinessHoursDetailStatus
+    status: BusinessHoursFetchStatus
     business_hours: dict[str, Any] | None
     raw_text: str | None
     error_message: str | None = None

@@ -8,8 +8,8 @@ import pytest
 
 from app.core.config import Settings
 from app.domain.business_hours import (
-    BusinessHoursDetailRecord,
-    BusinessHoursDetailStatus,
+    BusinessHoursPlaceCacheRecord,
+    BusinessHoursFetchStatus,
     BusinessHoursJobRecord,
     BusinessHoursJobStatus,
     BusinessHoursParseResult,
@@ -31,7 +31,7 @@ def _job() -> BusinessHoursJobRecord:
         job_id=uuid4(),
         kakao_place_id="123",
         place_url="https://place.map.kakao.com/123",
-        status=BusinessHoursJobStatus.PENDING,
+        status=BusinessHoursJobStatus.QUEUED,
         error_code=None,
         error_message=None,
         created_at=now,
@@ -39,15 +39,15 @@ def _job() -> BusinessHoursJobRecord:
     )
 
 
-def _detail(job: BusinessHoursJobRecord) -> BusinessHoursDetailRecord:
+def _detail(job: BusinessHoursJobRecord) -> BusinessHoursPlaceCacheRecord:
     now = datetime.now(timezone.utc)
-    return BusinessHoursDetailRecord(
+    return BusinessHoursPlaceCacheRecord(
         kakao_place_id=job.kakao_place_id,
         place_url=job.place_url,
         place_name=None,
         business_hours=None,
         business_hours_raw=None,
-        business_hours_status=BusinessHoursDetailStatus.PENDING,
+        business_hours_status=BusinessHoursFetchStatus.PENDING,
         business_hours_fetched_at=None,
         business_hours_expires_at=None,
         business_hours_source=None,
@@ -81,7 +81,7 @@ def test_business_hours_worker_stores_success(monkeypatch) -> None:
 
     async def fake_fetch(place_url, settings):
         return BusinessHoursParseResult(
-            status=BusinessHoursDetailStatus.SUCCESS,
+            status=BusinessHoursFetchStatus.SUCCEEDED,
             business_hours={"time_ranges": [{"open": "10:00", "close": "23:30"}]},
             raw_text="월요일 10:00 ~ 23:30",
         )
@@ -92,7 +92,7 @@ def test_business_hours_worker_stores_success(monkeypatch) -> None:
     outcome = _run(worker.process_job(job.job_id))
 
     assert outcome.succeeded is True
-    assert repo.completed_kwargs["detail_status"] == BusinessHoursDetailStatus.SUCCESS
+    assert repo.completed_kwargs["detail_status"] == BusinessHoursFetchStatus.SUCCEEDED
     assert repo.completed_kwargs["job_status"] == BusinessHoursJobStatus.SUCCEEDED
     assert repo.completed_kwargs["expires_in_seconds"] == Settings().business_hours_success_ttl_seconds
 
@@ -103,7 +103,7 @@ def test_business_hours_worker_stores_not_found_as_succeeded(monkeypatch) -> Non
 
     async def fake_fetch(place_url, settings):
         return BusinessHoursParseResult(
-            status=BusinessHoursDetailStatus.NOT_FOUND,
+            status=BusinessHoursFetchStatus.NOT_FOUND,
             business_hours=None,
             raw_text=None,
         )
@@ -114,7 +114,7 @@ def test_business_hours_worker_stores_not_found_as_succeeded(monkeypatch) -> Non
     outcome = _run(worker.process_job(job.job_id))
 
     assert outcome.succeeded is True
-    assert repo.completed_kwargs["detail_status"] == BusinessHoursDetailStatus.NOT_FOUND
+    assert repo.completed_kwargs["detail_status"] == BusinessHoursFetchStatus.NOT_FOUND
     assert repo.completed_kwargs["job_status"] == BusinessHoursJobStatus.SUCCEEDED
 
 
@@ -131,6 +131,6 @@ def test_business_hours_worker_stores_crawl_failed(monkeypatch) -> None:
     outcome = _run(worker.process_job(job.job_id))
 
     assert outcome.succeeded is False
-    assert repo.completed_kwargs["detail_status"] == BusinessHoursDetailStatus.CRAWL_FAILED
+    assert repo.completed_kwargs["detail_status"] == BusinessHoursFetchStatus.FAILED
     assert repo.completed_kwargs["job_status"] == BusinessHoursJobStatus.FAILED
     assert repo.completed_kwargs["expires_in_seconds"] == Settings().business_hours_crawl_failed_ttl_seconds

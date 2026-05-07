@@ -2,13 +2,13 @@ CREATE TABLE IF NOT EXISTS processing.business_hours_jobs (
     job_id UUID PRIMARY KEY,
     kakao_place_id TEXT NOT NULL,
     place_url TEXT NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    status VARCHAR(32) NOT NULL DEFAULT 'QUEUED',
     error_code TEXT,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_processing_business_hours_jobs_status
-        CHECK (status IN ('PENDING', 'FETCHING', 'SUCCEEDED', 'FAILED', 'ENQUEUE_FAILED'))
+        CHECK (status IN ('QUEUED', 'PROCESSING', 'SUCCEEDED', 'FAILED'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_processing_business_hours_jobs_status_updated_at
@@ -37,11 +37,9 @@ CREATE TABLE IF NOT EXISTS processing.business_hours_details (
             business_hours_status IN (
                 'PENDING',
                 'FETCHING',
-                'SUCCESS',
+                'SUCCEEDED',
                 'NOT_FOUND',
-                'CRAWL_FAILED',
-                'PARSE_FAILED',
-                'ENQUEUE_FAILED'
+                'FAILED'
             )
         ),
     CONSTRAINT chk_processing_business_hours_details_json_object

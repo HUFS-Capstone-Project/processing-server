@@ -64,7 +64,7 @@ class BusinessHoursService:
             place_name=place_name,
             stale_timeout_seconds=max(1, self.stale_timeout_seconds),
         )
-        if not outcome.created or not outcome.job:
+        if not outcome.job_created or not outcome.job:
             return outcome
 
         try:
@@ -79,8 +79,8 @@ class BusinessHoursService:
 
         return BusinessHoursCreateOutcome(
             job=outcome.job,
-            detail=outcome.detail,
-            created=True,
+            place_cache=outcome.place_cache,
+            job_created=True,
             enqueued=True,
             cache_hit=False,
         )

@@ -19,6 +19,20 @@ async def run_business_hours_worker() -> None:
     repository = BusinessHoursRepository(pool, settings.processing_schema)
     worker = BusinessHoursWorker(repository=repository, settings=settings)
     semaphore = asyncio.Semaphore(max(1, settings.business_hours_worker_concurrency))
+    running: set[asyncio.Task] = set()
+
+    async def process_queued_job(job_id) -> None:
+        async with semaphore:
+            outcome = await worker.process_job(job_id)
+        if outcome.processed:
+            await queue.ack(job_id)
+        logger.info(
+            "business hours processed job_id=%s processed=%s succeeded=%s elapsed_ms=%s",
+            job_id,
+            outcome.processed,
+            outcome.succeeded,
+            outcome.elapsed_ms,
+        )
 
     logger.info(
         "business hours worker started concurrency=%s queue_namespace=%s",
@@ -28,24 +42,22 @@ async def run_business_hours_worker() -> None:
     try:
         while True:
             try:
+                running = {task for task in running if not task.done()}
+                await queue.recover_stale_processing_jobs(settings.business_hours_fetching_stale_timeout_seconds)
+                await queue.promote_due_jobs(settings.queue_promote_batch_size)
                 job_id = await queue.dequeue(settings.business_hours_queue_pop_timeout_seconds)
                 if not job_id:
                     await asyncio.sleep(settings.business_hours_worker_idle_sleep_seconds)
                     continue
 
-                async with semaphore:
-                    outcome = await worker.process_job(job_id)
-                logger.info(
-                    "business hours processed job_id=%s processed=%s succeeded=%s elapsed_ms=%s",
-                    job_id,
-                    outcome.processed,
-                    outcome.succeeded,
-                    outcome.elapsed_ms,
-                )
+                task = asyncio.create_task(process_queued_job(job_id))
+                running.add(task)
             except Exception:
                 logger.exception("business hours worker loop error")
                 await asyncio.sleep(settings.business_hours_worker_idle_sleep_seconds)
     finally:
+        if running:
+            await asyncio.gather(*running, return_exceptions=True)
         await queue.close()
         await pool.close()
 

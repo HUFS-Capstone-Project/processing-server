@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.domain.business_hours import BusinessHoursDetailStatus
+from app.domain.business_hours import BusinessHoursFetchStatus
 from app.services.business_hours import parse_kakao_place_business_hours_html
 
 
@@ -46,7 +46,7 @@ FOLD_DETAIL_HTML = """
 def test_kakao_place_parser_stores_only_7_fold_detail_rows() -> None:
     result = parse_kakao_place_business_hours_html(FOLD_DETAIL_HTML)
 
-    assert result.status == BusinessHoursDetailStatus.SUCCESS
+    assert result.status == BusinessHoursFetchStatus.SUCCEEDED
     assert result.business_hours == {
         "daily_hours": [
             {"day": "수", "date": "5/6", "raw": "09:00 ~ 21:00", "open": "09:00", "close": "21:00"},
@@ -108,7 +108,7 @@ def test_kakao_place_parser_returns_not_found_without_operation_section() -> Non
 
     result = parse_kakao_place_business_hours_html(html)
 
-    assert result.status == BusinessHoursDetailStatus.NOT_FOUND
+    assert result.status == BusinessHoursFetchStatus.NOT_FOUND
     assert result.business_hours is None
     assert result.raw_text is None
 
@@ -125,7 +125,7 @@ def test_kakao_place_parser_returns_parse_failed_without_line_fold_rows() -> Non
 
     result = parse_kakao_place_business_hours_html(html)
 
-    assert result.status == BusinessHoursDetailStatus.PARSE_FAILED
+    assert result.status == BusinessHoursFetchStatus.FAILED
     assert result.business_hours is None
     assert result.raw_text is None
 
@@ -142,7 +142,7 @@ def test_kakao_place_parser_returns_parse_failed_for_invalid_pairs() -> None:
 
     result = parse_kakao_place_business_hours_html(html)
 
-    assert result.status == BusinessHoursDetailStatus.PARSE_FAILED
+    assert result.status == BusinessHoursFetchStatus.FAILED
     assert result.business_hours is None
     assert result.raw_text is None
 
@@ -159,7 +159,7 @@ def test_kakao_place_parser_supports_special_hour_values() -> None:
 
     result = parse_kakao_place_business_hours_html(html)
 
-    assert result.status == BusinessHoursDetailStatus.SUCCESS
+    assert result.status == BusinessHoursFetchStatus.SUCCEEDED
     assert result.business_hours == {
         "daily_hours": [
             {"day": "월", "date": None, "raw": "24시간", "type": "24시간"},
@@ -193,7 +193,7 @@ def test_kakao_place_parser_extracts_break_time_from_second_detail_text() -> Non
 
     result = parse_kakao_place_business_hours_html(html)
 
-    assert result.status == BusinessHoursDetailStatus.SUCCESS
+    assert result.status == BusinessHoursFetchStatus.SUCCEEDED
     assert result.business_hours == {
         "daily_hours": [
             {
@@ -238,7 +238,7 @@ def test_kakao_place_parser_includes_closed_day_rows() -> None:
 
     result = parse_kakao_place_business_hours_html(html)
 
-    assert result.status == BusinessHoursDetailStatus.SUCCESS
+    assert result.status == BusinessHoursFetchStatus.SUCCEEDED
     assert result.business_hours == {
         "daily_hours": [
             {"day": "목", "date": "5/7", "raw": "10:30 ~ 21:30", "open": "10:30", "close": "21:30"},
@@ -266,7 +266,7 @@ def test_kakao_place_parser_extracts_last_order_from_second_detail_text() -> Non
 
     result = parse_kakao_place_business_hours_html(html)
 
-    assert result.status == BusinessHoursDetailStatus.SUCCESS
+    assert result.status == BusinessHoursFetchStatus.SUCCEEDED
     assert result.business_hours == {
         "daily_hours": [
             {

@@ -9,8 +9,8 @@ import asyncpg  # type: ignore[import-untyped]
 
 from app.domain.business_hours import (
     BusinessHoursCreateOutcome,
-    BusinessHoursDetailRecord,
-    BusinessHoursDetailStatus,
+    BusinessHoursPlaceCacheRecord,
+    BusinessHoursFetchStatus,
     BusinessHoursJobRecord,
     BusinessHoursJobStatus,
 )
@@ -36,7 +36,7 @@ class BusinessHoursRepository:
         )
         return self._to_job_record(row) if row else None
 
-    async def get_business_hours_detail(self, kakao_place_id: str) -> BusinessHoursDetailRecord | None:
+    async def get_business_hours_detail(self, kakao_place_id: str) -> BusinessHoursPlaceCacheRecord | None:
         row = await self._pool.fetchrow(
             f"SELECT * FROM {self._details_table} WHERE kakao_place_id = $1",
             kakao_place_id,
@@ -46,7 +46,7 @@ class BusinessHoursRepository:
     async def get_business_hours_job_detail(
         self,
         job_id: UUID,
-    ) -> BusinessHoursDetailRecord | None:
+    ) -> BusinessHoursPlaceCacheRecord | None:
         row = await self._pool.fetchrow(
             f"""
             SELECT d.*
@@ -80,21 +80,21 @@ class BusinessHoursRepository:
                     if self._is_valid_cache(detail, now):
                         return BusinessHoursCreateOutcome(
                             job=existing_job,
-                            detail=detail,
-                            created=False,
+                            place_cache=detail,
+                            job_created=False,
                             enqueued=False,
                             cache_hit=True,
                         )
 
                     stale = self._is_stale_fetching(detail, now, stale_timeout_seconds)
                     if detail.business_hours_status in {
-                        BusinessHoursDetailStatus.PENDING,
-                        BusinessHoursDetailStatus.FETCHING,
+                        BusinessHoursFetchStatus.PENDING,
+                        BusinessHoursFetchStatus.FETCHING,
                     } and not stale:
                         return BusinessHoursCreateOutcome(
                             job=existing_job,
-                            detail=detail,
-                            created=False,
+                            place_cache=detail,
+                            job_created=False,
                             enqueued=False,
                             cache_hit=False,
                         )
@@ -107,7 +107,7 @@ class BusinessHoursRepository:
                                 status = 'FAILED',
                                 error_code = 'STALE_FETCHING_TIMEOUT',
                                 error_message = 'Business hours fetching timed out.'
-                            WHERE job_id = $1 AND status = 'FETCHING'
+                            WHERE job_id = $1 AND status = 'PROCESSING'
                             """,
                             detail.business_hours_job_id,
                         )
@@ -122,8 +122,8 @@ class BusinessHoursRepository:
                 )
                 return BusinessHoursCreateOutcome(
                     job=job,
-                    detail=detail,
-                    created=True,
+                    place_cache=detail,
+                    job_created=True,
                     enqueued=False,
                     cache_hit=False,
                 )
@@ -142,7 +142,7 @@ class BusinessHoursRepository:
                     f"""
                     UPDATE {self._jobs_table}
                     SET
-                        status = 'ENQUEUE_FAILED',
+                        status = 'FAILED',
                         error_code = 'ENQUEUE_FAILED',
                         error_message = $2
                     WHERE job_id = $1
@@ -155,7 +155,7 @@ class BusinessHoursRepository:
                     f"""
                     UPDATE {self._details_table}
                     SET
-                        business_hours_status = 'ENQUEUE_FAILED',
+                        business_hours_status = 'FAILED',
                         business_hours_expires_at = $2,
                         last_error = $3,
                         version = version + 1
@@ -170,8 +170,8 @@ class BusinessHoursRepository:
                     raise RuntimeError("Failed to mark business hours enqueue failure")
                 return BusinessHoursCreateOutcome(
                     job=self._to_job_record(job_row),
-                    detail=self._to_detail_record(detail_row),
-                    created=True,
+                    place_cache=self._to_detail_record(detail_row),
+                    job_created=True,
                     enqueued=False,
                     cache_hit=False,
                 )
@@ -179,14 +179,14 @@ class BusinessHoursRepository:
     async def claim_business_hours_job(
         self,
         job_id: UUID,
-    ) -> tuple[BusinessHoursJobRecord, BusinessHoursDetailRecord] | None:
+    ) -> tuple[BusinessHoursJobRecord, BusinessHoursPlaceCacheRecord] | None:
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 job_row = await conn.fetchrow(
                     f"""
                     UPDATE {self._jobs_table}
-                    SET status = 'FETCHING', error_code = NULL, error_message = NULL
-                    WHERE job_id = $1 AND status = 'PENDING'
+                    SET status = 'PROCESSING', error_code = NULL, error_message = NULL
+                    WHERE job_id = $1 AND status = 'QUEUED'
                     RETURNING *
                     """,
                     job_id,
@@ -215,14 +215,14 @@ class BusinessHoursRepository:
         self,
         *,
         job_id: UUID,
-        detail_status: BusinessHoursDetailStatus,
+        detail_status: BusinessHoursFetchStatus,
         job_status: BusinessHoursJobStatus,
         business_hours: dict[str, Any] | None,
         business_hours_raw: str | None,
         error_code: str | None,
         error_message: str | None,
         expires_in_seconds: int,
-    ) -> tuple[BusinessHoursJobRecord, BusinessHoursDetailRecord]:
+    ) -> tuple[BusinessHoursJobRecord, BusinessHoursPlaceCacheRecord]:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=max(60, expires_in_seconds))
         fetched_at = datetime.now(timezone.utc)
         async with self._pool.acquire() as conn:
@@ -277,7 +277,7 @@ class BusinessHoursRepository:
             INSERT INTO {self._jobs_table}
                 (job_id, kakao_place_id, place_url, status)
             VALUES
-                ($1, $2, $3, 'PENDING')
+                ($1, $2, $3, 'QUEUED')
             RETURNING *
             """,
             uuid4(),
@@ -296,7 +296,7 @@ class BusinessHoursRepository:
         place_url: str,
         place_name: str | None,
         job_id: UUID,
-    ) -> BusinessHoursDetailRecord:
+    ) -> BusinessHoursPlaceCacheRecord:
         row = await conn.fetchrow(
             f"""
             INSERT INTO {self._details_table} AS d
@@ -331,7 +331,7 @@ class BusinessHoursRepository:
     async def _active_or_cached_job(
         self,
         conn,
-        detail: BusinessHoursDetailRecord,
+        detail: BusinessHoursPlaceCacheRecord,
     ) -> BusinessHoursJobRecord | None:
         if detail.business_hours_job_id is None:
             return None
@@ -342,24 +342,24 @@ class BusinessHoursRepository:
         return self._to_job_record(row) if row else None
 
     @staticmethod
-    def _is_valid_cache(detail: BusinessHoursDetailRecord, now: datetime) -> bool:
+    def _is_valid_cache(detail: BusinessHoursPlaceCacheRecord, now: datetime) -> bool:
         return (
             detail.business_hours_expires_at is not None
             and detail.business_hours_expires_at > now
             and detail.business_hours_status
             not in {
-                BusinessHoursDetailStatus.PENDING,
-                BusinessHoursDetailStatus.FETCHING,
+                BusinessHoursFetchStatus.PENDING,
+                BusinessHoursFetchStatus.FETCHING,
             }
         )
 
     @staticmethod
     def _is_stale_fetching(
-        detail: BusinessHoursDetailRecord,
+        detail: BusinessHoursPlaceCacheRecord,
         now: datetime,
         stale_timeout_seconds: int,
     ) -> bool:
-        if detail.business_hours_status != BusinessHoursDetailStatus.FETCHING:
+        if detail.business_hours_status != BusinessHoursFetchStatus.FETCHING:
             return False
         return detail.updated_at <= now - timedelta(seconds=max(1, stale_timeout_seconds))
 
@@ -375,14 +375,14 @@ class BusinessHoursRepository:
             updated_at=row["updated_at"],
         )
 
-    def _to_detail_record(self, row: asyncpg.Record) -> BusinessHoursDetailRecord:
-        return BusinessHoursDetailRecord(
+    def _to_detail_record(self, row: asyncpg.Record) -> BusinessHoursPlaceCacheRecord:
+        return BusinessHoursPlaceCacheRecord(
             kakao_place_id=row["kakao_place_id"],
             place_url=row["place_url"],
             place_name=row["place_name"],
             business_hours=self._json_to_dict(row["business_hours"]),
             business_hours_raw=row["business_hours_raw"],
-            business_hours_status=BusinessHoursDetailStatus(row["business_hours_status"]),
+            business_hours_status=BusinessHoursFetchStatus(row["business_hours_status"]),
             business_hours_fetched_at=row["business_hours_fetched_at"],
             business_hours_expires_at=row["business_hours_expires_at"],
             business_hours_source=row["business_hours_source"],

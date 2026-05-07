@@ -10,9 +10,11 @@ from app.schemas.jobs import (
     ApiErrorResponse,
     CreateJobRequest,
     CreateJobResponse,
+    InstagramMetaResponse,
+    JobDebugResultResponse,
     JobResultResponse,
     JobStatusResponse,
-    ExtractionResultResponse,
+    ResolvedPlaceResponse,
 )
 
 __all__ = [
@@ -24,8 +26,10 @@ __all__ = [
     "CreateBusinessHoursJobRequest",
     "CreateBusinessHoursJobResponse",
     "CreateJobResponse",
+    "InstagramMetaResponse",
+    "JobDebugResultResponse",
     "JobResultResponse",
     "JobStatusResponse",
-    "ExtractionResultResponse",
+    "ResolvedPlaceResponse",
     "ExtractionLLMResponse",
 ]

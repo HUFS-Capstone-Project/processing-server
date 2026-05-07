@@ -8,7 +8,7 @@ from uuid import UUID
 
 from app.core.config import Settings
 from app.domain.business_hours import (
-    BusinessHoursDetailStatus,
+    BusinessHoursFetchStatus,
     BusinessHoursJobRecord,
     BusinessHoursJobStatus,
 )
@@ -75,50 +75,46 @@ class BusinessHoursWorker:
         except KakaoPlaceCrawlError as exc:
             await self._repository.complete_business_hours_job(
                 job_id=job.job_id,
-                detail_status=BusinessHoursDetailStatus.CRAWL_FAILED,
+                detail_status=BusinessHoursFetchStatus.FAILED,
                 job_status=BusinessHoursJobStatus.FAILED,
                 business_hours=None,
                 business_hours_raw=None,
-                error_code=BusinessHoursDetailStatus.CRAWL_FAILED.value,
+                error_code="CRAWL_FAILED",
                 error_message=str(exc)[:1000],
-                expires_in_seconds=self._ttl_seconds(BusinessHoursDetailStatus.CRAWL_FAILED),
+                expires_in_seconds=self._settings.business_hours_crawl_failed_ttl_seconds,
             )
             logger.exception("business hours crawl failed job_id=%s", job.job_id)
             return BusinessHoursProcessOutcome(True, False, self._elapsed_ms(started))
         except Exception as exc:
             await self._repository.complete_business_hours_job(
                 job_id=job.job_id,
-                detail_status=BusinessHoursDetailStatus.PARSE_FAILED,
+                detail_status=BusinessHoursFetchStatus.FAILED,
                 job_status=BusinessHoursJobStatus.FAILED,
                 business_hours=None,
                 business_hours_raw=None,
-                error_code=BusinessHoursDetailStatus.PARSE_FAILED.value,
+                error_code="PARSE_FAILED",
                 error_message=str(exc)[:1000],
-                expires_in_seconds=self._ttl_seconds(BusinessHoursDetailStatus.PARSE_FAILED),
+                expires_in_seconds=self._ttl_seconds(BusinessHoursFetchStatus.FAILED),
             )
             logger.exception("business hours job failed job_id=%s", job.job_id)
             return BusinessHoursProcessOutcome(True, False, self._elapsed_ms(started))
 
-    def _ttl_seconds(self, status: BusinessHoursDetailStatus) -> int:
-        if status == BusinessHoursDetailStatus.SUCCESS:
+    def _ttl_seconds(self, status: BusinessHoursFetchStatus) -> int:
+        if status == BusinessHoursFetchStatus.SUCCEEDED:
             return self._settings.business_hours_success_ttl_seconds
-        if status == BusinessHoursDetailStatus.NOT_FOUND:
+        if status == BusinessHoursFetchStatus.NOT_FOUND:
             return self._settings.business_hours_not_found_ttl_seconds
-        if status == BusinessHoursDetailStatus.CRAWL_FAILED:
-            return self._settings.business_hours_crawl_failed_ttl_seconds
-        if status == BusinessHoursDetailStatus.PARSE_FAILED:
+        if status == BusinessHoursFetchStatus.FAILED:
             return self._settings.business_hours_parse_failed_ttl_seconds
-        if status == BusinessHoursDetailStatus.ENQUEUE_FAILED:
-            return self._settings.business_hours_enqueue_failed_ttl_seconds
         return self._settings.business_hours_parse_failed_ttl_seconds
 
     @staticmethod
     def _job_status_for_detail_status(
-        status: BusinessHoursDetailStatus,
+        status: BusinessHoursFetchStatus,
     ) -> BusinessHoursJobStatus:
         if status in {
-            BusinessHoursDetailStatus.SUCCESS,
-            BusinessHoursDetailStatus.NOT_FOUND,
+            BusinessHoursFetchStatus.SUCCEEDED,
+            BusinessHoursFetchStatus.NOT_FOUND,
         }:
             return BusinessHoursJobStatus.SUCCEEDED
         return BusinessHoursJobStatus.FAILED

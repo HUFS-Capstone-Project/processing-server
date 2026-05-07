@@ -69,7 +69,11 @@ class Settings(BaseSettings):
 
     worker_max_attempts: int = 3
     worker_retry_base_seconds: int = 10
+    worker_retry_initial_delay: int = 10
     worker_retry_max_seconds: int = 300
+    worker_retry_max_delay: int = 300
+    worker_retry_backoff_multiplier: float = 2.0
+    stale_processing_timeout: int = 900
     worker_idle_sleep_seconds: float = 1.0
     worker_metrics_log_interval_seconds: int = 60
     worker_prewarm_browser: bool = True
