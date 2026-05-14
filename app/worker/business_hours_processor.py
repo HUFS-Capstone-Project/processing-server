@@ -27,6 +27,8 @@ class BusinessHoursProcessOutcome:
     total_elapsed_ms: int | None = None
     kakao_place_id: str | None = None
     status: str | None = None
+    detail_status: str | None = None
+    daily_hours_count: int | None = None
     error_code: str | None = None
 
 
@@ -77,6 +79,7 @@ class BusinessHoursWorker:
             parse_result = await fetch_kakao_place_business_hours(job.place_url, self._settings)
             final_job_status = self._job_status_for_detail_status(parse_result.status)
             error_code = None if final_job_status == BusinessHoursJobStatus.SUCCEEDED else parse_result.status.value
+            daily_hours_count = self._daily_hours_count(parse_result.business_hours)
             await self._repository.complete_business_hours_job(
                 job_id=job.job_id,
                 detail_status=parse_result.status,
@@ -97,6 +100,8 @@ class BusinessHoursWorker:
                 total_elapsed_ms=queue_wait_ms + elapsed_ms,
                 kakao_place_id=job.kakao_place_id,
                 status=final_job_status.value,
+                detail_status=parse_result.status.value,
+                daily_hours_count=daily_hours_count,
                 error_code=error_code,
             )
         except KakaoPlaceCrawlError as exc:
@@ -187,3 +192,12 @@ class BusinessHoursWorker:
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=now.tzinfo)
         return max(0, int((now - created_at).total_seconds() * 1000))
+
+    @staticmethod
+    def _daily_hours_count(business_hours: dict | None) -> int:
+        if not isinstance(business_hours, dict):
+            return 0
+        daily_hours = business_hours.get("daily_hours")
+        if not isinstance(daily_hours, list):
+            return 0
+        return len(daily_hours)

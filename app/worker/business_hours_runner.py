@@ -105,12 +105,15 @@ class BusinessHoursWorkerRunner:
             await self._queue.ack(job_id)
         logger.info(
             (
-                "business hours processed job_id=%s kakao_place_id=%s status=%s error_code=%s "
-                "queue_wait_ms=%s processing_elapsed_ms=%s total_elapsed_ms=%s processed=%s succeeded=%s"
+                "business hours processed job_id=%s kakao_place_id=%s status=%s detail_status=%s "
+                "daily_hours_count=%s error_code=%s queue_wait_ms=%s processing_elapsed_ms=%s "
+                "total_elapsed_ms=%s processed=%s succeeded=%s"
             ),
             job_id,
             outcome.kakao_place_id,
             outcome.status,
+            outcome.detail_status,
+            outcome.daily_hours_count,
             outcome.error_code,
             outcome.queue_wait_ms,
             outcome.elapsed_ms,

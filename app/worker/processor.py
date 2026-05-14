@@ -21,6 +21,7 @@ from app.domain.job import (
     as_place_dict,
     extracted_places_from_result,
 )
+from app.infra.llm import HFExtractionError
 from app.infra.kakao import KakaoNonRetryableError
 
 logger = logging.getLogger("processing.worker.processor")
@@ -177,6 +178,8 @@ class JobProcessor:
             )
         except Exception:
             logger.exception("extraction failed source_url=%s", source_url)
+            if self._settings.extraction_failure_retry_enabled:
+                raise
             return None
 
     async def _enrich_place(
@@ -298,6 +301,8 @@ class JobProcessor:
 
     @staticmethod
     def _is_retryable_error(exc: Exception) -> bool:
+        if isinstance(exc, HFExtractionError):
+            return True
         if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
             return True
         name = exc.__class__.__name__.lower()
@@ -315,6 +320,8 @@ class JobProcessor:
 
     @staticmethod
     def _error_code(exc: Exception) -> str:
+        if isinstance(exc, HFExtractionError):
+            return "RETRYABLE_EXTRACTION_ERROR"
         if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
             return "RETRYABLE_TIMEOUT"
         name = exc.__class__.__name__

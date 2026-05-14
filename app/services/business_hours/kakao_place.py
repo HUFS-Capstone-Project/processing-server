@@ -63,15 +63,54 @@ async def fetch_kakao_place_business_hours(
     settings: Settings,
 ) -> BusinessHoursParseResult:
     timeouts = _crawl_timeouts(settings)
-    try:
-        return await asyncio.wait_for(
-            _fetch_kakao_place_business_hours(place_url, timeouts, settings),
-            timeout=max(1, timeouts.total_ms / 1000) + 5,
-        )
-    except PlaywrightTimeoutError as exc:
-        raise KakaoPlaceCrawlError(str(exc)) from exc
-    except asyncio.TimeoutError as exc:
-        raise KakaoPlaceCrawlError("Kakao place crawl hard timeout") from exc
+    max_attempts = max(1, settings.business_hours_crawl_max_attempts)
+    last_result: BusinessHoursParseResult | None = None
+    last_error: KakaoPlaceCrawlError | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = await asyncio.wait_for(
+                _fetch_kakao_place_business_hours(place_url, timeouts, settings),
+                timeout=max(1, timeouts.total_ms / 1000) + 5,
+            )
+        except PlaywrightTimeoutError as exc:
+            last_error = KakaoPlaceCrawlError(str(exc) or exc.__class__.__name__)
+        except asyncio.TimeoutError as exc:
+            last_error = KakaoPlaceCrawlError("Kakao place crawl hard timeout")
+        except KakaoPlaceCrawlError as exc:
+            last_error = exc
+        else:
+            if not _should_retry_parse_result(result) or attempt >= max_attempts:
+                return _prefer_retry_result(last_result, result)
+            last_result = _prefer_retry_result(last_result, result)
+            logger.info(
+                (
+                    "business hours crawl retry url=%s attempt=%s max_attempts=%s "
+                    "detail_status=%s error_message=%s"
+                ),
+                place_url,
+                attempt,
+                max_attempts,
+                result.status.value,
+                result.error_message,
+            )
+
+        if attempt < max_attempts:
+            if last_error is not None:
+                logger.info(
+                    "business hours crawl retry url=%s attempt=%s max_attempts=%s error=%s",
+                    place_url,
+                    attempt,
+                    max_attempts,
+                    last_error,
+                )
+            await asyncio.sleep(_crawl_retry_delay_seconds(settings, attempt))
+
+    if last_result is not None:
+        return last_result
+    if last_error is not None:
+        raise last_error
+    raise KakaoPlaceCrawlError("Kakao place crawl failed")
 
 
 async def _fetch_kakao_place_business_hours(
@@ -112,7 +151,25 @@ async def _fetch_kakao_place_business_hours(
         raise KakaoPlaceCrawlError(str(exc)) from exc
 
     rows = _rows_from_payload(rows_payload)
-    return parse_kakao_place_business_hours_rows(rows, operation_section_found=rows_payload is not None)
+    result = parse_kakao_place_business_hours_rows(rows, operation_section_found=rows_payload is not None)
+    daily_hours_count = (
+        len(result.business_hours.get("daily_hours", []))
+        if isinstance(result.business_hours, dict)
+        else 0
+    )
+    logger.info(
+        (
+            "business hours crawl parsed url=%s detail_status=%s operation_section_found=%s "
+            "rows=%s daily_hours=%s raw_text_len=%s"
+        ),
+        place_url,
+        result.status.value,
+        rows_payload is not None,
+        len(rows),
+        daily_hours_count,
+        len(result.raw_text or ""),
+    )
+    return result
 
 
 async def _extract_rows_when_ready(page: Any, timeouts: KakaoPlaceCrawlTimeouts) -> Any:
@@ -120,6 +177,7 @@ async def _extract_rows_when_ready(page: Any, timeouts: KakaoPlaceCrawlTimeouts)
     if rows_payload is not None:
         return rows_payload
 
+    selector_timed_out = False
     if timeouts.selector_wait_ms > 0:
         try:
             await page.wait_for_selector(
@@ -127,7 +185,7 @@ async def _extract_rows_when_ready(page: Any, timeouts: KakaoPlaceCrawlTimeouts)
                 timeout=timeouts.selector_wait_ms,
             )
         except PlaywrightTimeoutError:
-            pass
+            selector_timed_out = True
 
     rows_payload = await page.evaluate(_DOM_ROW_EXTRACTION_JS)
     if rows_payload is not None:
@@ -136,6 +194,8 @@ async def _extract_rows_when_ready(page: Any, timeouts: KakaoPlaceCrawlTimeouts)
     if timeouts.fallback_wait_ms > 0:
         await page.wait_for_timeout(timeouts.fallback_wait_ms)
         rows_payload = await page.evaluate(_DOM_ROW_EXTRACTION_JS)
+    if rows_payload is None and selector_timed_out:
+        raise PlaywrightTimeoutError("Business hours selector wait timed out.")
     return rows_payload
 
 
@@ -235,6 +295,33 @@ def _crawl_timeouts(settings: Settings) -> KakaoPlaceCrawlTimeouts:
         fallback_wait_ms=fallback_wait_ms,
         networkidle_ms=networkidle_ms,
     )
+
+
+def _should_retry_parse_result(result: BusinessHoursParseResult) -> bool:
+    return result.status == BusinessHoursFetchStatus.FAILED
+
+
+def _prefer_retry_result(
+    current: BusinessHoursParseResult | None,
+    new: BusinessHoursParseResult,
+) -> BusinessHoursParseResult:
+    if current is None:
+        return new
+    priority = {
+        BusinessHoursFetchStatus.SUCCEEDED: 3,
+        BusinessHoursFetchStatus.FAILED: 2,
+        BusinessHoursFetchStatus.NOT_FOUND: 1,
+    }
+    if priority.get(new.status, 0) >= priority.get(current.status, 0):
+        return new
+    return current
+
+
+def _crawl_retry_delay_seconds(settings: Settings, attempt: int) -> float:
+    base_ms = max(0, settings.business_hours_crawl_retry_base_ms)
+    if base_ms <= 0:
+        return 0.0
+    return (base_ms / 1000.0) * max(1, attempt)
 
 
 def _normalize_row(row: BusinessHoursRow) -> dict[str, str | None] | None:

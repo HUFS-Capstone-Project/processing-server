@@ -294,9 +294,10 @@ def _run(coro):
 
 
 class FakePage:
-    def __init__(self, payloads):
+    def __init__(self, payloads, *, selector_times_out=True):
         self.payloads = list(payloads)
         self.calls = []
+        self.selector_times_out = selector_times_out
 
     async def goto(self, url, wait_until, timeout):
         self.calls.append(("goto", url, wait_until, timeout))
@@ -306,7 +307,9 @@ class FakePage:
 
     async def wait_for_selector(self, selector, timeout):
         self.calls.append(("wait_for_selector", selector, timeout))
-        raise kakao_place.PlaywrightTimeoutError("selector timeout")
+        if self.selector_times_out:
+            raise kakao_place.PlaywrightTimeoutError("selector timeout")
+        return None
 
     async def wait_for_timeout(self, timeout):
         self.calls.append(("wait_for_timeout", timeout))
@@ -379,7 +382,7 @@ def test_kakao_place_crawler_exits_early_without_networkidle(monkeypatch) -> Non
 
 
 def test_kakao_place_crawler_fallbacks_then_returns_not_found(monkeypatch) -> None:
-    page = FakePage([None, None, None])
+    page = FakePage([None, None, None], selector_times_out=False)
     browser = FakeBrowser(page)
     monkeypatch.setattr(kakao_place, "async_playwright", lambda: FakePlaywright(browser))
 
@@ -389,6 +392,7 @@ def test_kakao_place_crawler_fallbacks_then_returns_not_found(monkeypatch) -> No
             kakao_place.Settings(
                 business_hours_crawl_selector_wait_timeout_ms=10,
                 business_hours_crawl_fallback_wait_timeout_ms=20,
+                business_hours_crawl_max_attempts=1,
             ),
         )
     )
@@ -408,6 +412,7 @@ def test_kakao_place_crawler_returns_failed_when_operation_has_no_rows(monkeypat
             kakao_place.Settings(
                 business_hours_crawl_selector_wait_timeout_ms=10,
                 business_hours_crawl_fallback_wait_timeout_ms=20,
+                business_hours_crawl_max_attempts=1,
             ),
         )
     )

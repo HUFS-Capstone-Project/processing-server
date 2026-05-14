@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -92,23 +93,42 @@ class HFExtractionClient:
             "Content-Type": "application/json",
         }
         timeout = httpx.Timeout(self._settings.hf_extraction_timeout_seconds)
+        max_attempts = max(1, self._settings.hf_extraction_max_attempts)
+        last_error: HFExtractionError | None = None
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=timeout,
-                transport=self._transport,
-            ) as client:
-                response = await client.post(
-                    self._settings.hf_extraction_endpoint_url,
-                    headers=headers,
-                    json=payload,
-                )
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
-            raise HFExtractionError(str(exc)) from exc
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            transport=self._transport,
+        ) as client:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    response = await client.post(
+                        self._settings.hf_extraction_endpoint_url,
+                        headers=headers,
+                        json=payload,
+                    )
+                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                    last_error = HFExtractionError(str(exc) or exc.__class__.__name__)
+                    if attempt >= max_attempts:
+                        raise last_error from exc
+                    await self._sleep_before_retry(attempt)
+                    continue
 
-        if response.status_code >= 400:
-            raise HFExtractionError(f"HF request failed ({response.status_code})")
+                if response.status_code >= 400:
+                    error = HFExtractionError(f"HF request failed ({response.status_code})")
+                    if not _is_retryable_status(response.status_code) or attempt >= max_attempts:
+                        raise error
+                    last_error = error
+                    await self._sleep_before_retry(attempt)
+                    continue
 
+                return self._parse_response(response)
+
+        if last_error is not None:
+            raise last_error
+        raise HFExtractionError("HF extraction failed")
+
+    def _parse_response(self, response: httpx.Response) -> ExtractionResult:
         try:
             response_payload = response.json()
         except json.JSONDecodeError as exc:
@@ -122,6 +142,13 @@ class HFExtractionClient:
         except ValidationError as exc:
             raise HFExtractionError("HF response failed schema validation") from exc
         return self._limit_places(result)
+
+    async def _sleep_before_retry(self, attempt: int) -> None:
+        base_seconds = max(0.0, self._settings.hf_extraction_retry_base_seconds)
+        if base_seconds <= 0:
+            return
+        multiplier = max(1.0, self._settings.hf_extraction_retry_backoff_multiplier)
+        await asyncio.sleep(base_seconds * (multiplier ** max(0, attempt - 1)))
 
     def _build_payload(
         self,
@@ -192,6 +219,10 @@ def extract_text_from_hf_payload(payload: Any) -> str:
                 return choice["text"]
 
     raise HFExtractionError("HF response does not contain generated text")
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code == 429 or 500 <= status_code < 600
 
 
 def extract_json_object(text: str) -> dict[str, Any]:

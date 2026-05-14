@@ -61,11 +61,11 @@ services:
       - key: WORKER_PREWARM_TIMEOUT_SECONDS
         value: "15"
       - key: CRAWLER_TIMEOUT
-        value: "30"
+        value: "45"
       - key: INSTAGRAM_NAVIGATION_TIMEOUT
-        value: "12"
+        value: "20"
       - key: INSTAGRAM_OG_WAIT_TIMEOUT_MS
-        value: "3000"
+        value: "5000"
       - key: INSTAGRAM_BLOCK_RESOURCE_TYPES
         value: "image,font,media"
       - key: CRAWLER_BROWSER_REUSE_ENABLED
@@ -73,7 +73,21 @@ services:
       - key: CRAWLER_RECOVER_ON_BROWSER_CRASH
         value: "true"
       - key: CRAWLER_HARD_TIMEOUT_MARGIN_SECONDS
-        value: "5"
+        value: "10"
+      - key: KAKAO_TIMEOUT_SECONDS
+        value: "10"
+      - key: HF_EXTRACTION_TIMEOUT_SECONDS
+        value: "30"
+      - key: HF_EXTRACTION_MAX_NEW_TOKENS
+        value: "1024"
+      - key: HF_EXTRACTION_MAX_ATTEMPTS
+        value: "3"
+      - key: HF_EXTRACTION_RETRY_BASE_SECONDS
+        value: "2"
+      - key: HF_EXTRACTION_RETRY_BACKOFF_MULTIPLIER
+        value: "2.0"
+      - key: EXTRACTION_FAILURE_RETRY_ENABLED
+        value: "true"
       - key: WORKER_METRICS_LOG_INTERVAL_SECONDS
         value: "60"
       - key: PLAYWRIGHT_NO_SANDBOX
@@ -109,7 +123,21 @@ services:
       - key: BUSINESS_HOURS_WORKER_IDLE_SLEEP_SECONDS
         value: "1.0"
       - key: BUSINESS_HOURS_CRAWL_TIMEOUT_SECONDS
+        value: "30"
+      - key: BUSINESS_HOURS_CRAWL_NAVIGATION_TIMEOUT_SECONDS
         value: "15"
+      - key: BUSINESS_HOURS_CRAWL_SELECTOR_WAIT_TIMEOUT_MS
+        value: "5000"
+      - key: BUSINESS_HOURS_CRAWL_FALLBACK_WAIT_TIMEOUT_MS
+        value: "2000"
+      - key: BUSINESS_HOURS_CRAWL_NETWORKIDLE_ENABLED
+        value: "false"
+      - key: BUSINESS_HOURS_CRAWL_NETWORKIDLE_TIMEOUT_MS
+        value: "5000"
+      - key: BUSINESS_HOURS_CRAWL_MAX_ATTEMPTS
+        value: "2"
+      - key: BUSINESS_HOURS_CRAWL_RETRY_BASE_MS
+        value: "1000"
       - key: BUSINESS_HOURS_FETCHING_STALE_TIMEOUT_SECONDS
         value: "900"
       - key: BUSINESS_HOURS_SUCCESS_TTL_SECONDS

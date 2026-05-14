@@ -59,12 +59,14 @@ class Settings(BaseSettings):
     business_hours_queue_pop_timeout_seconds: int = 5
     business_hours_worker_concurrency: int = 1
     business_hours_worker_idle_sleep_seconds: float = 1.0
-    business_hours_crawl_timeout_seconds: int = 15
-    business_hours_crawl_navigation_timeout_seconds: int = 8
-    business_hours_crawl_selector_wait_timeout_ms: int = 1000
-    business_hours_crawl_fallback_wait_timeout_ms: int = 500
+    business_hours_crawl_timeout_seconds: int = 30
+    business_hours_crawl_navigation_timeout_seconds: int = 15
+    business_hours_crawl_selector_wait_timeout_ms: int = 5000
+    business_hours_crawl_fallback_wait_timeout_ms: int = 2000
     business_hours_crawl_networkidle_enabled: bool = False
-    business_hours_crawl_networkidle_timeout_ms: int = 3000
+    business_hours_crawl_networkidle_timeout_ms: int = 5000
+    business_hours_crawl_max_attempts: int = 2
+    business_hours_crawl_retry_base_ms: int = 1000
     business_hours_fetching_stale_timeout_seconds: int = 900
     business_hours_success_ttl_seconds: int = 14 * 24 * 60 * 60
     business_hours_not_found_ttl_seconds: int = 3 * 24 * 60 * 60
@@ -116,8 +118,12 @@ class Settings(BaseSettings):
     hf_extraction_endpoint_url: str = ""
     hf_extraction_api_token: str = ""
     hf_extraction_model_name: str = "Qwen/Qwen2.5-Coder-32B-Instruct"
-    hf_extraction_timeout_seconds: int = 20
-    hf_extraction_max_new_tokens: int = 2048
+    hf_extraction_timeout_seconds: int = 30
+    hf_extraction_max_new_tokens: int = 1024
+    hf_extraction_max_attempts: int = 3
+    hf_extraction_retry_base_seconds: float = 0.0
+    hf_extraction_retry_backoff_multiplier: float = 2.0
+    extraction_failure_retry_enabled: bool = True
 
     @field_validator("processing_schema")
     @classmethod

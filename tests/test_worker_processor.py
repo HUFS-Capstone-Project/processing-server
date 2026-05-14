@@ -676,7 +676,7 @@ def test_processor_drops_low_confidence_place_candidates(monkeypatch) -> None:
 def test_processor_succeeds_when_extraction_client_fails(monkeypatch) -> None:
     job = _new_job()
     repo = FakeRepository(job)
-    settings = Settings()
+    settings = Settings(extraction_failure_retry_enabled=False)
 
     async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
         return CrawlArtifact(
