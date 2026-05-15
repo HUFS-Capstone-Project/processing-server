@@ -11,7 +11,7 @@ from app.core.config import Settings
 from app.domain.job import ExtractionResult
 from app.schemas.extraction import ExtractionLLMResponse
 
-EXTRACTION_SYSTEM_PROMPT_TEMPLATE = (
+EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V1 = (
     "You extract place/store information from Korean social media captions. "
     "Return only one JSON object with these exact top-level keys: store_name, "
     "address, store_name_evidence, address_evidence, certainty, places. "
@@ -43,6 +43,52 @@ EXTRACTION_SYSTEM_PROMPT_TEMPLATE = (
     "empty. If no place is found, return places as an empty array. Do not include "
     "explanations, Markdown, or any text outside the JSON object."
 )
+
+EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V2 = (
+    "You extract visitable place/store information from Korean social media captions. "
+    "Return only one JSON object with these exact top-level keys: store_name, address, "
+    "store_name_evidence, address_evidence, certainty, places. places must be an array "
+    "of objects. Each place object must have these exact keys: store_name, address, "
+    "store_name_evidence, address_evidence, certainty. Extract every distinct "
+    "place/store/brand that appears to be a visitable local business, up to "
+    "{max_candidates} places, preserving caption order. "
+    "Extraction priority: "
+    "1. Highest priority: explicit place markers. Treat the text immediately after "
+    "markers such as '📍', '📌위치 :', '위치 :', '상호명 :', '매장명 :', '가게 :', "
+    "or '장소 :' as the place name. If the line has 'PLACE_NAME (ADDRESS)', extract "
+    "PLACE_NAME as store_name and ADDRESS as address. "
+    "2. If a place marker line is followed by an address line, pair them together. "
+    "3. If a hashtag is near an address, hours, menu list, phone number, or place "
+    "marker, it may be the store name. Prefer specific proper-noun hashtags, but do "
+    "not use generic hashtags. "
+    "4. Preserve full branch/store names exactly as written. Keep suffixes such as "
+    "본점, 직영점, 성수점, 연신내점, 강남점, 용산 아이파크몰점, 마곡본점. "
+    "5. Do not translate, romanize, shorten, or normalize Korean place names. Copy "
+    "the exact Korean text from the caption whenever possible. "
+    "Never extract these as store_name: menu names such as 우동, 면발, 북어백짬뽕, "
+    "직화마라탕, 감자탕, 치즈케이크, 카피바라푸딩; category or title phrases such "
+    "as 노포, 이모카세, 술집, 맛집, 카페, 디저트맛집, 찜질방, 야장맛집; "
+    "region/category phrases such as 성수맛집, 삼각지맛집, 방이동, 신용산 해산물집; "
+    "campaign/prize/event text; account handles. If both a descriptive title and an "
+    "explicit place marker exist, always choose the explicit place marker. "
+    "Examples: '면발 하나로... 📍우동키노야 신용산본점 서울 용산구...' -> "
+    "우동키노야 신용산본점; '이게 카피바라야... 📍 썸머러너' -> 썸머러너, not "
+    "카피바라; '📌위치 : 중화객잔수 강남점 (서울 강남구 강남대로66길 11)' -> "
+    "중화객잔수 강남점, not 북어백짬뽕; '📍 나침반 연신내점' -> 나침반 연신내점, "
+    "not 나침반; '📍 토끼정 용산 아이파크몰점' -> 토끼정 용산 아이파크몰점, "
+    "not 토끼정; '📌상호명 : 혼신꼬치 본점' -> 혼신꼬치 본점. "
+    "Address lines often start with map-pin markers, address/location labels, or "
+    "Korean address units such as city, gu, gun, dong, eup, myeon, ri, ga, ro, or "
+    "gil. Do not invent missing values. Use null when unknown. Evidence values must "
+    "be exact substrings copied from the input caption. certainty must be one of "
+    "high, medium, or low. The top-level legacy fields store_name, address, "
+    "store_name_evidence, address_evidence, and certainty must mirror the first item "
+    "in places, or null/low when places is empty. If no place is found, return "
+    "places as an empty array. Do not include explanations, Markdown, or any text "
+    "outside the JSON object."
+)
+
+EXTRACTION_SYSTEM_PROMPT_TEMPLATE = EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V2
 
 
 def build_extraction_system_prompt(max_candidates: int) -> str:

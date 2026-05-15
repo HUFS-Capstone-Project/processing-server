@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any
 
 import httpx
@@ -116,7 +117,7 @@ class KakaoLocalClient:
         return places
 
     @staticmethod
-    def _score_place(
+    def _score_place_v1(
         keyword: str,
         place_name: str,
         rank: int,
@@ -146,9 +147,58 @@ class KakaoLocalClient:
 
         return max(0.0, min(0.99, score))
 
+    @staticmethod
+    def _score_place(
+        keyword: str,
+        place_name: str,
+        rank: int,
+        doc: dict[str, Any],
+        location_hints: list[str],
+    ) -> float:
+        name_similarity = _name_similarity(keyword, place_name)
+        score = 0.25 + (min(name_similarity, 1.0) * 0.45)
+        if rank == 0:
+            score += 0.12
+        elif rank == 1:
+            score += 0.06
+        elif rank == 2:
+            score += 0.03
+
+        address_blob = " ".join(
+            [
+                str(doc.get("address_name") or ""),
+                str(doc.get("road_address_name") or ""),
+            ]
+        )
+        exact_address_hint = _has_exact_address_hint(address_blob, location_hints)
+        if exact_address_hint:
+            score += 0.18
+        elif any(hint.lower() in address_blob.lower() for hint in location_hints[:2]):
+            score += 0.07
+
+        # v2 guardrail: address/rank alone must not select an unrelated POI.
+        if name_similarity < 0.45:
+            score = min(score, 0.69)
+
+        return max(0.0, min(0.99, score))
+
 
 def _normalize_place_text(value: str) -> str:
     return "".join((value or "").lower().split())
+
+
+def _normalize_name_text(value: str) -> str:
+    return "".join(char.lower() for char in value or "" if char.isalnum())
+
+
+def _name_similarity(left: str, right: str) -> float:
+    left_norm = _normalize_name_text(left)
+    right_norm = _normalize_name_text(right)
+    if not left_norm or not right_norm:
+        return 0.0
+    if left_norm in right_norm or right_norm in left_norm:
+        return 1.0
+    return SequenceMatcher(None, left_norm, right_norm).ratio()
 
 
 def _normalize_address_text(value: str) -> str:
