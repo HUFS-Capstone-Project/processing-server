@@ -7,6 +7,7 @@ Private API + Worker + Redis Queue + PostgreSQL 구조로 동작합니다.
 
 * **API 서버**: `uvicorn app.main:app`
 * **Worker**: `python -m app.worker.runner`
+* **Business Hours Worker**: `python -m app.worker.business_hours_runner`
 * **Queue**: Redis
 * **Storage**: PostgreSQL
 
@@ -68,6 +69,13 @@ docker compose up -d
 ```
 
 
+### 8. Business Hours Worker 실행 (터미널 3)
+
+```bash
+./.venv/Scripts/python.exe -m app.worker.business_hours_runner
+```
+
+
 
 ### Swagger
 
@@ -89,5 +97,6 @@ http://127.0.0.1:8000/docs
 
 * **Web Service**: FastAPI (uvicorn)
 * **Background Worker**: Render Background worker
+* **Business Hours Worker**: Render Background worker
 * **Redis**: Render Key/Value
 * **PostgreSQL**: Aiven DB

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app.core.config import Settings
-from app.domain.job import ExtractedCandidate
+from app.domain.job import PlaceSearchQuery
 from app.infra.kakao import KakaoLocalClient, KakaoNonRetryableError
 
 if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
@@ -40,12 +40,11 @@ def _settings() -> Settings:
     )
 
 
-def _candidate() -> ExtractedCandidate:
-    return ExtractedCandidate(
-        keyword="커먼맨션",
-        source_keyword="커먼맨션",
-        source_sentence="브런치 맛집 커먼맨션 입니다",
-        raw_candidate="커먼맨션",
+def _candidate() -> PlaceSearchQuery:
+    return PlaceSearchQuery(
+        query="커먼맨션",
+        evidence_text="브런치 맛집 커먼맨션 입니다",
+        original_text="커먼맨션",
     )
 
 
@@ -116,11 +115,10 @@ def test_kakao_local_client_requires_api_key() -> None:
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
 def test_kakao_local_client_boosts_exact_address_match_above_threshold() -> None:
-    candidate = ExtractedCandidate(
-        keyword="중앙시장 오복닭집",
-        source_keyword="중앙시장 오복닭집",
-        source_sentence="(2) 중앙시장 오복닭집",
-        raw_candidate="중앙시장 오복닭집",
+    candidate = PlaceSearchQuery(
+        query="중앙시장 오복닭집",
+        evidence_text="(2) 중앙시장 오복닭집",
+        original_text="중앙시장 오복닭집",
     )
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -166,11 +164,10 @@ def test_kakao_local_client_boosts_exact_address_match_above_threshold() -> None
 def test_kakao_local_client_deduplicates_address_only_query() -> None:
     seen_requests: list[httpx.Request] = []
     address = "경북 경주시 내남면 포석로 110-32"
-    candidate = ExtractedCandidate(
-        keyword=address,
-        source_keyword="수뢰뫼",
-        source_sentence="(4) 수뢰뫼",
-        raw_candidate="수뢰뫼",
+    candidate = PlaceSearchQuery(
+        query=address,
+        evidence_text="(4) 수뢰뫼",
+        original_text="수뢰뫼",
     )
 
     async def handler(request: httpx.Request) -> httpx.Response:

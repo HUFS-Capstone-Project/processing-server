@@ -49,11 +49,14 @@ class JobService:
 
     async def create_job(self, command: CreateJobCommand) -> JobRecord:
         normalized_url = self._validate_url(command.url)
+        job_id = uuid4()
         job = await self._repository.create_job(
-            job_id=uuid4(),
+            job_id=job_id,
             room_id=command.room_id,
             source_url=normalized_url,
         )
+        if job.job_id != job_id:
+            return job
 
         try:
             await self._queue.enqueue(job.job_id)

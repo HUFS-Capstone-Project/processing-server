@@ -12,7 +12,7 @@ from app.core.config import Settings
 from app.domain.crawl import crawl_and_parse
 from app.domain.job import (
     CrawlArtifact,
-    ExtractedCandidate,
+    PlaceSearchQuery,
     ExtractedPlace,
     ExtractionResult,
     JobRecord,
@@ -21,6 +21,7 @@ from app.domain.job import (
     as_place_dict,
     extracted_places_from_result,
 )
+from app.infra.llm import HFExtractionError
 from app.infra.kakao import KakaoNonRetryableError
 
 logger = logging.getLogger("processing.worker.processor")
@@ -32,6 +33,11 @@ class JobProcessOutcome:
     succeeded: bool
     timed_out: bool
     elapsed_ms: int
+    retryable: bool = False
+    error_code: str | None = None
+    error_message: str | None = None
+    attempt_count: int = 0
+    max_attempts: int = 0
 
 
 class JobRepositoryPort(Protocol):
@@ -41,7 +47,12 @@ class JobRepositoryPort(Protocol):
 
     async def mark_succeeded(self, job_id: UUID): ...
 
-    async def mark_failed(self, job_id: UUID, error_message: str): ...
+    async def mark_failed(
+        self,
+        job_id: UUID,
+        error_message: str,
+        error_code: str | None = None,
+    ): ...
 
 
 class ExtractionPort(Protocol):
@@ -61,7 +72,7 @@ class PlaceSearchResultPort(Protocol):
 class PlaceSearchPort(Protocol):
     async def search_places(
         self,
-        candidate: ExtractedCandidate,
+        candidate: PlaceSearchQuery,
         location_hints: list[str],
     ) -> PlaceSearchResultPort: ...
 
@@ -96,16 +107,16 @@ class JobProcessor:
         try:
             crawl_artifact = await crawl_and_parse(job.source_url, self._settings)
             extraction_result = await self._extract_result(job.source_url, crawl_artifact)
-            place_candidates, selected_places = await self._enrich_place(
+            place_candidates, resolved_places = await self._enrich_place(
                 extraction_result,
                 crawl_artifact,
             )
             logger.info(
-                "job crawl completed job_id=%s caption_len=%s place_candidates=%s selected_places=%s",
+                "job crawl completed job_id=%s caption_len=%s place_candidates=%s resolved_places=%s",
                 job.job_id,
                 len(crawl_artifact.caption or ""),
                 len(place_candidates),
-                len(selected_places),
+                len(resolved_places),
             )
 
             await self._repository.upsert_job_result(
@@ -116,7 +127,7 @@ class JobProcessor:
                     as_extraction_result_dict(extraction_result) if extraction_result else None
                 ),
                 place_candidates=place_candidates,
-                selected_places=selected_places,
+                resolved_places=resolved_places,
             )
             await self._repository.mark_succeeded(job.job_id)
             elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -129,7 +140,12 @@ class JobProcessor:
             )
         except Exception as exc:
             logger.exception("job processing failed job_id=%s", job_id)
-            await self._repository.mark_failed(job_id, f"{exc.__class__.__name__}: {exc}")
+            error_code = self._error_code(exc)
+            error_message = f"{exc.__class__.__name__}: {exc}"
+            try:
+                await self._repository.mark_failed(job_id, error_message, error_code=error_code)
+            except TypeError:
+                await self._repository.mark_failed(job_id, error_message)
             elapsed_ms = int((time.monotonic() - started) * 1000)
             timed_out = isinstance(exc, (asyncio.TimeoutError, TimeoutError)) or (
                 exc.__class__.__name__ == "PlaywrightTimeoutError"
@@ -139,6 +155,11 @@ class JobProcessor:
                 succeeded=False,
                 timed_out=timed_out,
                 elapsed_ms=elapsed_ms,
+                retryable=self._is_retryable_error(exc),
+                error_code=error_code,
+                error_message=error_message,
+                attempt_count=job.attempt_count,
+                max_attempts=job.max_attempts,
             )
 
     async def _extract_result(
@@ -157,6 +178,8 @@ class JobProcessor:
             )
         except Exception:
             logger.exception("extraction failed source_url=%s", source_url)
+            if self._settings.extraction_failure_retry_enabled:
+                raise
             return None
 
     async def _enrich_place(
@@ -172,7 +195,7 @@ class JobProcessor:
             return [], []
 
         all_places: list[PlaceCandidate] = []
-        selected_places: list[dict[str, object]] = []
+        resolved_places: list[dict[str, object]] = []
         seen_candidate_keys: set[str] = set()
         seen_selected_keys: set[str] = set()
 
@@ -190,8 +213,8 @@ class JobProcessor:
                 return [], []
             except Exception:
                 logger.exception(
-                    "kakao enrichment failed source_keyword=%s",
-                    candidate.source_keyword,
+                    "kakao enrichment failed evidence_text=%s",
+                    candidate.evidence_text,
                 )
                 continue
 
@@ -199,7 +222,7 @@ class JobProcessor:
             if places:
                 selected_key = self._place_dedupe_key(places[0])
                 if selected_key not in seen_selected_keys:
-                    selected_places.append(as_place_dict(places[0]))
+                    resolved_places.append(as_place_dict(places[0]))
                     seen_selected_keys.add(selected_key)
 
             for place in places:
@@ -210,26 +233,25 @@ class JobProcessor:
                 seen_candidate_keys.add(candidate_key)
 
         place_candidates = [as_place_dict(place) for place in all_places]
-        return place_candidates, selected_places
+        return place_candidates, resolved_places
 
     def _build_extracted_candidate(
         self,
         extracted_place: ExtractedPlace,
         crawl_artifact: CrawlArtifact,
-    ) -> ExtractedCandidate | None:
+    ) -> PlaceSearchQuery | None:
         store_name = (extracted_place.store_name or "").strip()
         if not store_name:
             return None
-        return ExtractedCandidate(
-            keyword=store_name,
-            source_keyword=store_name,
-            source_sentence=(
+        return PlaceSearchQuery(
+            query=store_name,
+            evidence_text=(
                 extracted_place.store_name_evidence
                 or extracted_place.address_evidence
                 or crawl_artifact.caption
                 or ""
             ),
-            raw_candidate=store_name,
+            original_text=store_name,
         )
 
     @staticmethod
@@ -240,7 +262,7 @@ class JobProcessor:
 
     async def _search_places(
         self,
-        candidate: ExtractedCandidate,
+        candidate: PlaceSearchQuery,
         location_hints: list[str],
     ) -> list[PlaceCandidate]:
         if not self._place_search_client:
@@ -250,7 +272,7 @@ class JobProcessor:
 
     async def _search_places_by_hints(
         self,
-        candidate: ExtractedCandidate,
+        candidate: PlaceSearchQuery,
         location_hints: list[str],
     ) -> list[PlaceCandidate]:
         for hint in location_hints:
@@ -265,11 +287,10 @@ class JobProcessor:
             return qualified
 
         for hint in location_hints:
-            address_candidate = ExtractedCandidate(
-                keyword=hint,
-                source_keyword=candidate.source_keyword,
-                source_sentence=candidate.source_sentence,
-                raw_candidate=candidate.raw_candidate,
+            address_candidate = PlaceSearchQuery(
+                query=hint,
+                evidence_text=candidate.evidence_text,
+                original_text=candidate.original_text,
             )
             places = await self._search_places(address_candidate, [hint])
             qualified = self._qualified_places(places)
@@ -277,6 +298,36 @@ class JobProcessor:
                 return qualified
 
         return []
+
+    @staticmethod
+    def _is_retryable_error(exc: Exception) -> bool:
+        if isinstance(exc, HFExtractionError):
+            return True
+        if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+            return True
+        name = exc.__class__.__name__.lower()
+        message = str(exc).lower()
+        retryable_fragments = (
+            "timeout",
+            "temporar",
+            "network",
+            "connection",
+            "browser",
+            "closed",
+            "retryable",
+        )
+        return any(fragment in name or fragment in message for fragment in retryable_fragments)
+
+    @staticmethod
+    def _error_code(exc: Exception) -> str:
+        if isinstance(exc, HFExtractionError):
+            return "RETRYABLE_EXTRACTION_ERROR"
+        if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+            return "RETRYABLE_TIMEOUT"
+        name = exc.__class__.__name__
+        if "Playwright" in name or "Browser" in name:
+            return "RETRYABLE_CRAWLER_ERROR"
+        return "JOB_PROCESSING_FAILED"
 
     def _qualified_places(self, places: list[PlaceCandidate]) -> list[PlaceCandidate]:
         return [

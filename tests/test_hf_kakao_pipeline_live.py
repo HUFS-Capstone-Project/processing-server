@@ -12,7 +12,7 @@ import pytest
 from app.core.config import Settings
 from app.domain.job import (
     CrawlArtifact,
-    ExtractedCandidate,
+    PlaceSearchQuery,
     as_extraction_result_dict,
     as_place_dict,
 )
@@ -121,7 +121,7 @@ class RecordingKakaoLocalClient:
 
     async def search_places(
         self,
-        candidate: ExtractedCandidate,
+        candidate: PlaceSearchQuery,
         location_hints: list[str],
     ):
         started = perf_counter()
@@ -134,7 +134,7 @@ class RecordingKakaoLocalClient:
         ]
         self.calls.append(
             {
-                "keyword": candidate.keyword,
+                "keyword": candidate.query,
                 "location_hints": location_hints,
                 "elapsed_ms": elapsed_ms,
                 "returned_count": len(result.places),
@@ -209,7 +209,7 @@ async def _run_live_pipeline_case(
         caption=case.caption,
         instagram_meta={"caption": case.caption},
     )
-    place_candidates, selected_places = await processor._enrich_place(
+    place_candidates, resolved_places = await processor._enrich_place(
         extraction_result,
         crawl_artifact,
     )
@@ -220,7 +220,7 @@ async def _run_live_pipeline_case(
         for place in (extraction_dict or {}).get("places", [])
         if isinstance(place, dict)
     ]
-    selected_names = [place.get("place_name") for place in selected_places]
+    selected_names = [place.get("place_name") for place in resolved_places]
     extraction_matches = {
         name: _contains_place_name(extracted_names, name)
         for name in case.expected_place_names
@@ -241,8 +241,8 @@ async def _run_live_pipeline_case(
         "kakao_calls": kakao.calls,
         "place_candidates": place_candidates,
         "place_candidate_count": len(place_candidates),
-        "selected_places": selected_places,
-        "selected_places_count": len(selected_places),
+        "resolved_places": resolved_places,
+        "resolved_places_count": len(resolved_places),
         "selected_matches": selected_matches,
     }
 
@@ -338,8 +338,8 @@ async def _run_all_live_pipeline_cases(
                     "kakao_calls": [],
                     "place_candidates": [],
                     "place_candidate_count": 0,
-                    "selected_places": [],
-                    "selected_places_count": 0,
+                    "resolved_places": [],
+                    "resolved_places_count": 0,
                     "selected_matches": {
                         name: False for name in case.expected_place_names
                     },

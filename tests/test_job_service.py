@@ -103,6 +103,29 @@ def test_create_job_enqueues_once() -> None:
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_create_job_reuses_duplicate_without_enqueueing_again() -> None:
+    repo = FakeRepository()
+    queue = FakeQueue(enqueued=[])
+    service = JobService(repo, queue)
+    room_id = uuid4()
+    command = CreateJobCommand(
+        url="https://www.instagram.com/reel/abcde/",
+        room_id=room_id,
+    )
+
+    first = _run(service.create_job(command))
+
+    async def create_existing_job(*, job_id, room_id, source_url):
+        return first
+
+    repo.create_job = create_existing_job
+    second = _run(service.create_job(command))
+
+    assert second.job_id == first.job_id
+    assert queue.enqueued == [first.job_id]
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
 def test_create_job_rejects_invalid_url() -> None:
     repo = FakeRepository()
     queue = FakeQueue(enqueued=[])

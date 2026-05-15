@@ -48,6 +48,15 @@ class JobRecord:
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+    attempt_count: int = 0
+    max_attempts: int = 3
+    error_code: str | None = None
+    next_retry_at: datetime | None = None
+    processing_started_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    failed_at: datetime | None = None
+    completed_at: datetime | None = None
+    normalized_source_url: str | None = None
 
 
 @dataclass(slots=True)
@@ -57,20 +66,29 @@ class JobResultRecord:
     instagram_meta: dict[str, Any] | None
     extraction_result: dict[str, Any] | None
     place_candidates: list[dict[str, Any]]
-    selected_places: list[dict[str, Any]]
+    resolved_places: list[dict[str, Any]]
     created_at: datetime
     updated_at: datetime
 
 
-@dataclass(slots=True)
-class ExtractedCandidate:
-    keyword: str
-    source_keyword: str
-    source_sentence: str
-    raw_candidate: str
+@dataclass(slots=True, init=False)
+class PlaceSearchQuery:
+    query: str
+    evidence_text: str
+    original_text: str
+
+    def __init__(
+        self,
+        query: str | None = None,
+        evidence_text: str | None = None,
+        original_text: str | None = None,
+    ) -> None:
+        self.query = query or ""
+        self.evidence_text = evidence_text or self.query
+        self.original_text = original_text or self.query
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class PlaceCandidate:
     kakao_place_id: str
     place_name: str
@@ -84,9 +102,44 @@ class PlaceCandidate:
     y: str | None
     place_url: str | None
     confidence: float
-    source_keyword: str
-    source_sentence: str
-    raw_candidate: str
+    query: str
+    evidence_text: str
+    original_text: str
+
+    def __init__(
+        self,
+        *,
+        kakao_place_id: str,
+        place_name: str,
+        category_name: str | None,
+        category_group_code: str | None,
+        category_group_name: str | None,
+        phone: str | None,
+        address_name: str | None,
+        road_address_name: str | None,
+        x: str | None,
+        y: str | None,
+        place_url: str | None,
+        confidence: float,
+        query: str | None = None,
+        evidence_text: str | None = None,
+        original_text: str | None = None,
+    ) -> None:
+        self.kakao_place_id = kakao_place_id
+        self.place_name = place_name
+        self.category_name = category_name
+        self.category_group_code = category_group_code
+        self.category_group_name = category_group_name
+        self.phone = phone
+        self.address_name = address_name
+        self.road_address_name = road_address_name
+        self.x = x
+        self.y = y
+        self.place_url = place_url
+        self.confidence = confidence
+        self.query = query or place_name
+        self.evidence_text = evidence_text or self.query
+        self.original_text = original_text or self.query
 
 
 @dataclass(slots=True)
@@ -113,18 +166,17 @@ def as_place_dict(place: PlaceCandidate) -> dict[str, Any]:
         "y": place.y,
         "place_url": place.place_url,
         "confidence": round(place.confidence, 4),
-        "source_keyword": place.source_keyword,
-        "source_sentence": place.source_sentence,
-        "raw_candidate": place.raw_candidate,
+        "query": place.query,
+        "evidence_text": place.evidence_text,
+        "original_text": place.original_text,
     }
 
 
-def as_candidate_dict(candidate: ExtractedCandidate) -> dict[str, Any]:
+def as_candidate_dict(candidate: PlaceSearchQuery) -> dict[str, Any]:
     return {
-        "keyword": candidate.keyword,
-        "source_keyword": candidate.source_keyword,
-        "source_sentence": candidate.source_sentence,
-        "raw_candidate": candidate.raw_candidate,
+        "query": candidate.query,
+        "evidence_text": candidate.evidence_text,
+        "original_text": candidate.original_text,
     }
 
 

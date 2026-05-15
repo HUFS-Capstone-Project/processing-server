@@ -113,8 +113,8 @@ class FakePlaceSearchClient:
     async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
         self.calls.append(
             {
-                "keyword": candidate.keyword,
-                "source_keyword": candidate.source_keyword,
+                "keyword": candidate.query,
+                "query": candidate.query,
                 "location_hints": location_hints,
             }
         )
@@ -139,12 +139,12 @@ class KeywordAwarePlaceSearchClient:
     async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
         self.calls.append(
             {
-                "keyword": candidate.keyword,
-                "source_keyword": candidate.source_keyword,
+                "keyword": candidate.query,
+                "query": candidate.query,
                 "location_hints": location_hints,
             }
         )
-        return FakePlaceSearchResult(self.places_by_keyword.get(candidate.keyword, []))
+        return FakePlaceSearchResult(self.places_by_keyword.get(candidate.query, []))
 
 
 class KeywordAndHintAwarePlaceSearchClient:
@@ -158,13 +158,13 @@ class KeywordAndHintAwarePlaceSearchClient:
     async def search_places(self, candidate, location_hints: list[str]) -> FakePlaceSearchResult:
         self.calls.append(
             {
-                "keyword": candidate.keyword,
-                "source_keyword": candidate.source_keyword,
+                "keyword": candidate.query,
+                "query": candidate.query,
                 "location_hints": location_hints,
             }
         )
         return FakePlaceSearchResult(
-            self.places_by_call.get((candidate.keyword, tuple(location_hints)), [])
+            self.places_by_call.get((candidate.query, tuple(location_hints)), [])
         )
 
 
@@ -191,7 +191,7 @@ def _place_candidate(
     confidence: float = 0.95,
     kakao_place_id: str = "123",
     place_name: str = "Common Mansion",
-    source_keyword: str = "Common Mansion",
+    query: str = "Common Mansion",
     address_name: str = "Seoul Jongno-gu Sinmunro 2-ga 1-102",
     road_address_name: str = "Seoul Jongno-gu Saemunan-ro 1",
 ) -> PlaceCandidate:
@@ -208,9 +208,9 @@ def _place_candidate(
         y="37.570000",
         place_url=f"https://place.map.kakao.com/{kakao_place_id}",
         confidence=confidence,
-        source_keyword=source_keyword,
-        source_sentence=f"{source_keyword} 1-102 Sinmunro 2-ga",
-        raw_candidate=source_keyword,
+        query=query,
+        evidence_text=f"{query} 1-102 Sinmunro 2-ga",
+        original_text=query,
     )
 
 
@@ -358,7 +358,7 @@ def test_processor_tries_broader_location_hints_before_keyword_only(monkeypatch)
     ]
     assert repo.saved_result is not None
     assert "selected_place" not in repo.saved_result
-    assert repo.saved_result["selected_places"][0]["confidence"] == 0.95
+    assert repo.saved_result["resolved_places"][0]["confidence"] == 0.95
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
@@ -380,7 +380,7 @@ def test_processor_falls_back_to_address_only_search(monkeypatch) -> None:
         confidence=0.8,
         kakao_place_id="456",
         place_name="수뢰뫼",
-        source_keyword="수뢰뫼",
+        query="수뢰뫼",
         address_name="경북 경주시 내남면 용장리 114-3",
         road_address_name=address,
     )
@@ -423,8 +423,8 @@ def test_processor_falls_back_to_address_only_search(monkeypatch) -> None:
         {"keyword": address, "location_hints": [address]},
     ]
     assert repo.saved_result is not None
-    assert repo.saved_result["selected_places"][0]["place_name"] == "수뢰뫼"
-    assert repo.saved_result["selected_places"][0]["source_keyword"] == "수뢰뫼"
+    assert repo.saved_result["resolved_places"][0]["place_name"] == "수뢰뫼"
+    assert repo.saved_result["resolved_places"][0]["query"] == "수뢰뫼"
 
 
 def test_build_location_hints_from_korean_address() -> None:
@@ -485,7 +485,7 @@ def test_processor_enriches_place_from_extraction_result(monkeypatch) -> None:
     assert place_search.calls == [
         {
             "keyword": "Common Mansion",
-            "source_keyword": "Common Mansion",
+            "query": "Common Mansion",
             "location_hints": ["1-102 Sinmunro 2-ga, Jongno-gu, Seoul"],
         }
     ]
@@ -493,8 +493,8 @@ def test_processor_enriches_place_from_extraction_result(monkeypatch) -> None:
     assert repo.saved_result is not None
     assert len(repo.saved_result["place_candidates"]) == 2
     assert "selected_place" not in repo.saved_result
-    assert repo.saved_result["selected_places"][0]["confidence"] == 0.95
-    assert repo.saved_result["selected_places"][0]["kakao_place_id"] == "123"
+    assert repo.saved_result["resolved_places"][0]["confidence"] == 0.95
+    assert repo.saved_result["resolved_places"][0]["kakao_place_id"] == "123"
     assert repo.failed is None
 
 
@@ -536,7 +536,7 @@ def test_processor_enriches_multiple_places_from_extraction_result(monkeypatch) 
                 _place_candidate(
                     kakao_place_id=str(index),
                     place_name=name,
-                    source_keyword=name,
+                    query=name,
                     address_name=address,
                     road_address_name=address,
                 )
@@ -572,11 +572,11 @@ def test_processor_enriches_multiple_places_from_extraction_result(monkeypatch) 
         name for name, _ in extracted_places
     ]
     assert len(repo.saved_result["place_candidates"]) == 6
-    assert [place["place_name"] for place in repo.saved_result["selected_places"]] == [
+    assert [place["place_name"] for place in repo.saved_result["resolved_places"]] == [
         name for name, _ in extracted_places
     ]
     assert "selected_place" not in repo.saved_result
-    assert repo.saved_result["selected_places"][0]["place_name"] == "플루밍"
+    assert repo.saved_result["resolved_places"][0]["place_name"] == "플루밍"
     assert [
         place["store_name"]
         for place in repo.saved_result["extraction_result"]["places"]
@@ -624,7 +624,7 @@ def test_processor_succeeds_when_place_search_fails(monkeypatch) -> None:
     assert repo.saved_result is not None
     assert repo.saved_result["place_candidates"] == []
     assert "selected_place" not in repo.saved_result
-    assert repo.saved_result["selected_places"] == []
+    assert repo.saved_result["resolved_places"] == []
     assert repo.failed is None
 
 
@@ -668,7 +668,7 @@ def test_processor_drops_low_confidence_place_candidates(monkeypatch) -> None:
     assert repo.saved_result is not None
     assert repo.saved_result["place_candidates"] == []
     assert "selected_place" not in repo.saved_result
-    assert repo.saved_result["selected_places"] == []
+    assert repo.saved_result["resolved_places"] == []
     assert repo.failed is None
 
 
@@ -676,7 +676,7 @@ def test_processor_drops_low_confidence_place_candidates(monkeypatch) -> None:
 def test_processor_succeeds_when_extraction_client_fails(monkeypatch) -> None:
     job = _new_job()
     repo = FakeRepository(job)
-    settings = Settings()
+    settings = Settings(extraction_failure_retry_enabled=False)
 
     async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
         return CrawlArtifact(

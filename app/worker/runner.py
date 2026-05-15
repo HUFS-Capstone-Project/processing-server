@@ -100,6 +100,14 @@ def build_place_search_client(settings):
     return KakaoLocalClient(settings)
 
 
+def retry_delay_seconds(settings, attempt_count: int) -> int:
+    initial = getattr(settings, "worker_retry_initial_delay", settings.worker_retry_base_seconds)
+    max_delay = getattr(settings, "worker_retry_max_delay", settings.worker_retry_max_seconds)
+    multiplier = max(1.0, getattr(settings, "worker_retry_backoff_multiplier", 2.0))
+    delay = initial * (multiplier ** max(0, attempt_count - 1))
+    return int(min(max_delay, max(1, delay)))
+
+
 async def run_worker() -> None:
     settings = get_settings()
     pool = await create_db_pool(settings)
@@ -127,6 +135,20 @@ async def run_worker() -> None:
     try:
         while True:
             try:
+                try:
+                    recovered_ids = await repository.converge_completed_results()
+                    for recovered_id in recovered_ids:
+                        await queue.ack(recovered_id)
+                    stale_ids = await repository.recover_stale_processing_jobs(
+                        settings.stale_processing_timeout,
+                    )
+                    for stale_id in stale_ids:
+                        await queue.enqueue(stale_id)
+                    await queue.recover_stale_processing_jobs(settings.stale_processing_timeout)
+                    await queue.promote_due_jobs(settings.queue_promote_batch_size)
+                except Exception:
+                    logger.warning("worker recovery sweep failed", exc_info=True)
+
                 job_id = await queue.dequeue(settings.queue_pop_timeout_seconds)
                 if not job_id:
                     await asyncio.sleep(settings.worker_idle_sleep_seconds)
@@ -149,6 +171,27 @@ async def run_worker() -> None:
                         timed_out=outcome.timed_out,
                         elapsed_ms=outcome.elapsed_ms,
                     )
+                    if outcome.succeeded:
+                        await queue.ack(job_id)
+                    elif outcome.retryable and outcome.attempt_count < outcome.max_attempts:
+                        delay = retry_delay_seconds(settings, outcome.attempt_count)
+                        await repository.schedule_retry(
+                            job_id,
+                            error_code=outcome.error_code,
+                            error_message=outcome.error_message,
+                            delay_seconds=delay,
+                        )
+                        await queue.retry_later(job_id, delay)
+                        logger.info(
+                            "job retry scheduled job_id=%s attempt_count=%s max_attempts=%s retry_delay=%s error_code=%s",
+                            job_id,
+                            outcome.attempt_count,
+                            outcome.max_attempts,
+                            delay,
+                            outcome.error_code,
+                        )
+                    else:
+                        await queue.ack(job_id)
             except Exception:
                 logger.exception("worker loop error")
                 await asyncio.sleep(settings.worker_idle_sleep_seconds)

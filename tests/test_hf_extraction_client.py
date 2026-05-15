@@ -95,6 +95,37 @@ def test_hf_extraction_client_returns_domain_result() -> None:
     assert seen_requests[0]["max_tokens"] == 1024
 
 
+def test_hf_extraction_client_retries_transient_http_failure() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, json={"error": "busy"})
+        return httpx.Response(
+            200,
+            json={"generated_text": json.dumps(_response_payload())},
+        )
+
+    extractor = HFExtractionClient(
+        _settings(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = _run(
+        extractor.extract(
+            text="Common Mansion",
+            source_url="https://www.instagram.com/reel/example/",
+            media_type="reel",
+        )
+    )
+
+    assert result is not None
+    assert result.store_name == "Common Mansion"
+    assert calls == 2
+
+
 def test_hf_extraction_client_accepts_long_realistic_caption() -> None:
     long_caption = """실제 광화문 직장인 지인이 여기가 최고라고 소개해줘서 알게 된 집
 
@@ -220,7 +251,11 @@ def test_build_extraction_system_prompt_mentions_hashtag_store_names() -> None:
 
 
 def test_hf_extraction_client_raises_on_http_error() -> None:
+    calls = 0
+
     async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
         return httpx.Response(500, json={"error": "temporary failure"})
 
     extractor = HFExtractionClient(
@@ -236,6 +271,32 @@ def test_hf_extraction_client_raises_on_http_error() -> None:
                 media_type=None,
             )
         )
+    assert calls == 3
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 402, 403])
+def test_hf_extraction_client_does_not_retry_non_transient_http_errors(status_code: int) -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status_code, json={"error": "non retryable"})
+
+    extractor = HFExtractionClient(
+        _settings(),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(HFExtractionError):
+        _run(
+            extractor.extract(
+                text="Common Mansion",
+                source_url="https://example.com/post",
+                media_type=None,
+            )
+        )
+    assert calls == 1
 
 
 def test_hf_extraction_client_raises_on_invalid_schema() -> None:
