@@ -39,6 +39,7 @@ def _run(coro):
     try:
         return asyncio.run(coro)
     except OSError as exc:
+        coro.close()
         pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
 
 
@@ -50,6 +51,7 @@ class FakeRepository:
         self.saved_link_stats: dict | None = None
         self.succeeded = False
         self.failed: str | None = None
+        self.failed_error_code: str | None = None
 
     async def claim_job(self, job_id: UUID) -> JobRecord | None:
         if job_id != self._job.job_id:
@@ -72,8 +74,9 @@ class FakeRepository:
         self.succeeded = True
         return self._job
 
-    async def mark_failed(self, job_id: UUID, error_message: str):
+    async def mark_failed(self, job_id: UUID, error_message: str, error_code: str | None = None):
         self.failed = error_message
+        self.failed_error_code = error_code
         return self._job
 
 
@@ -253,6 +256,55 @@ def test_processor_success(monkeypatch) -> None:
     assert repo.saved_content["content_text"] == "#yeonnamcafe review"
     assert repo.saved_result["extraction_result"] is None
     assert repo.failed is None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_fails_empty_instagram_crawl_with_no_og_source(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings()
+    extractor = FakeExtractionClient(None)
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="",
+            media_type="reel",
+            source_type="INSTAGRAM",
+            extraction_method="INSTAGRAM_OG_META",
+            raw_metadata={
+                "instagram": {"og_source": "none", "login_form_present": True},
+                "response_status": 200,
+                "html_len": 1024,
+                "body_text_len": 0,
+            },
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+    )
+
+    outcome = _run(processor.process_job(job.job_id))
+
+    assert outcome.succeeded is False
+    assert outcome.error_code == "EMPTY_INSTAGRAM_CRAWL"
+    assert repo.succeeded is False
+    assert repo.failed_error_code == "EMPTY_INSTAGRAM_CRAWL"
+    assert repo.saved_content is not None
+    assert repo.saved_content["source_type"] == "INSTAGRAM"
+    assert repo.saved_content["content_text"] == ""
+    assert repo.saved_result == {
+        "job_id": job.job_id,
+        "extraction_result": None,
+        "place_candidates": [],
+        "resolved_places": [],
+    }
+    assert extractor.calls == []
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")

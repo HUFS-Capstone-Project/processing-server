@@ -206,7 +206,7 @@ async def _run_live_pipeline_case(
         html=None,
         content_text=case.caption,
         media_type="reel",
-        raw_metadata={"caption": case.caption},
+        raw_metadata={"extraction_source": "test_fixture"},
     )
     place_candidates, resolved_places = await processor._enrich_place(
         extraction_result,

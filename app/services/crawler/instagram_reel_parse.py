@@ -12,6 +12,9 @@ class ParsedInstagramReelMeta(TypedDict):
     username: str
     posted_at: str
     caption: str
+    likes_text: str
+    comments_text: str
+    posted_at_text: str
 
 
 def _parse_count(s: str) -> int:
@@ -54,6 +57,9 @@ def parse_instagram_reel_meta(text: str) -> ParsedInstagramReelMeta | None:
             "username": username.strip(),
             "posted_at": posted_at.strip(),
             "caption": caption.strip(),
+            "likes_text": likes_s.strip(),
+            "comments_text": comments_s.strip(),
+            "posted_at_text": posted_at.strip(),
         }
 
     m = _RE_UNQUOTED.match(raw)
@@ -65,6 +71,9 @@ def parse_instagram_reel_meta(text: str) -> ParsedInstagramReelMeta | None:
             "username": username.strip(),
             "posted_at": posted_at.strip(),
             "caption": caption.strip(),
+            "likes_text": likes_s.strip(),
+            "comments_text": comments_s.strip(),
+            "posted_at_text": posted_at.strip(),
         }
 
     return None

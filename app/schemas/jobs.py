@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, HttpUrl
@@ -31,7 +31,6 @@ class CreateJobResponse(BaseModel):
     job_id: UUID
     status: JobStatus
     source_url: str
-    source: Literal["instagram", "web"] | None
     created_at: datetime
 
 
@@ -39,7 +38,6 @@ class JobStatusResponse(BaseModel):
     job_id: UUID
     room_id: UUID
     source_url: str
-    source: Literal["instagram", "web"] | None
     status: JobStatus
     error_message: str | None
     created_at: datetime
@@ -80,7 +78,6 @@ class JobDebugResultResponse(BaseModel):
     room_id: UUID
     source_url: str
     normalized_source_url: str | None = None
-    source: Literal["instagram", "web"] | None
     status: JobStatus
     attempt_count: int
     max_attempts: int

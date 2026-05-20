@@ -30,6 +30,7 @@ def _run(coro):
     try:
         return asyncio.run(coro)
     except OSError as exc:
+        coro.close()
         pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
 
 
@@ -60,6 +61,102 @@ class _FakeRuntime:
     async def shutdown(self) -> None:
         self.shutdown_calls += 1
         self._launched = False
+
+
+def test_naver_blog_log_no_extraction_from_path_and_query() -> None:
+    assert service.extract_naver_blog_log_no("https://blog.naver.com/example/123") == "123"
+    assert (
+        service.extract_naver_blog_log_no(
+            "https://blog.naver.com/PostView.naver?blogId=example&logNo=456"
+        )
+        == "456"
+    )
+
+
+def test_naver_blog_selector_priority_uses_log_no_specific_selectors_first() -> None:
+    selectors = service.naver_blog_content_selectors("123")
+
+    assert selectors[:4] == [
+        "#post-view123 > div > div.se-main-container",
+        "#post-view123 .se-main-container",
+        "#post-view123",
+        ".se-main-container",
+    ]
+
+
+def test_naver_blog_text_normalization_removes_zero_width_and_compacts_blank_lines() -> None:
+    text = "  hello\u200b\u00a0 world  \n\n\n  second\t\tline  \n"
+
+    assert service.normalize_naver_blog_text(text) == "hello world\n\nsecond line"
+
+
+def test_instagram_fetch_metadata_sanitizes_diagnostic_urls() -> None:
+    result = service.InstagramFetchResult(
+        caption="",
+        og_source="none",
+        og_wait_timed_out=True,
+        early_extract_hit=False,
+        blocked_resource_count=0,
+        launch_ms=1,
+        context_ms=1,
+        goto_ms=1,
+        og_wait_ms=1,
+        extract_ms=1,
+        total_ms=5,
+        response_url="https://www.instagram.com/reel/abc/?token=secret#fragment",
+        final_url="https://www.instagram.com/accounts/login/?next=/reel/abc/&token=secret",
+    )
+
+    metadata = service.instagram_fetch_metadata(result)
+
+    assert metadata["response_url"] == "https://www.instagram.com/reel/abc/"
+    assert metadata["final_url"] == "https://www.instagram.com/accounts/login/"
+    assert metadata["instagram"]["og_source"] == "none"
+    assert "caption" not in metadata
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_naver_blog_page_extraction_returns_selector_text_and_like_text() -> None:
+    class FakePage:
+        url = "https://blog.naver.com/PostView.naver?blogId=example&logNo=123"
+
+        def __init__(self) -> None:
+            self.selector_args: list[list[str]] = []
+
+        async def evaluate(self, script: str, arg):
+            if script == service.NAVER_BLOG_CONTENT_EXTRACTION_JS:
+                self.selector_args.append(arg)
+                return {
+                    "selector": "#post-view123 > div > div.se-main-container",
+                    "text": "  body\u200b text  ",
+                }
+            if script == service.NAVER_BLOG_TEXT_BY_SELECTORS_JS:
+                return "좋아요 4"
+            raise AssertionError(f"unexpected script: {script}")
+
+        async def wait_for_selector(self, selector: str, timeout: int):
+            self.wait_selector = selector
+            self.wait_timeout = timeout
+            return object()
+
+        async def content(self) -> str:
+            return "<html>raw</html>"
+
+    page = FakePage()
+
+    result = _run(
+        service._extract_naver_blog_from_page(
+            page,
+            log_no="123",
+            extraction_source="iframe_post_view",
+            iframe_src="/PostView.naver?blogId=example&logNo=123",
+        )
+    )
+
+    assert page.selector_args[0][0] == "#post-view123 > div > div.se-main-container"
+    assert result.content_text == "body text"
+    assert result.like_count_text == "좋아요 4"
+    assert result.html == "<html>raw</html>"
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")

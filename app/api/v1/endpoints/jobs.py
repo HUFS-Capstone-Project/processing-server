@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.security import require_internal_api_key
 from app.domain.job import CreateJobCommand, InvalidJobRequest, JobService, JobStatus
-from app.domain.source_classifier import classify_source_url
 from app.infra.db.repository import JobRepository
 from app.schemas.jobs import (
     ApiErrorResponse,
@@ -21,10 +20,6 @@ from app.schemas.jobs import (
 )
 
 router = APIRouter()
-
-
-def infer_source(source_url: str) -> str | None:
-    return classify_source_url(source_url)
 
 
 def get_job_service(request: Request) -> JobService:
@@ -65,7 +60,6 @@ async def create_job(
         job_id=job.job_id,
         status=job.status,
         source_url=job.source_url,
-        source=infer_source(job.source_url),
         created_at=job.created_at,
     )
 
@@ -91,7 +85,6 @@ async def get_job_status(
         job_id=job.job_id,
         room_id=job.room_id,
         source_url=job.source_url,
-        source=infer_source(job.source_url),
         status=job.status,
         error_message=job.error_message,
         created_at=job.created_at,
@@ -167,7 +160,6 @@ async def get_job_debug_result(
         room_id=job.room_id,
         source_url=job.source_url,
         normalized_source_url=job.normalized_source_url,
-        source=infer_source(job.source_url),
         status=job.status,
         attempt_count=job.attempt_count,
         max_attempts=job.max_attempts,

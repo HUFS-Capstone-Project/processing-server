@@ -59,7 +59,7 @@ CREATE TABLE processing.link_stats (
     CONSTRAINT chk_processing_link_stats_source_type
         CHECK (source_type IN ('INSTAGRAM', 'NAVER_BLOG', 'GENERIC_WEB')),
     CONSTRAINT chk_processing_link_stats_source
-        CHECK (stats_source IN ('META_TAG', 'INSTAGRAM_META', 'SCRAPED', 'UNAVAILABLE')),
+        CHECK (stats_source IN ('META_TAG', 'INSTAGRAM_META', 'NAVER_BLOG_DOM', 'SCRAPED', 'UNAVAILABLE')),
     CONSTRAINT chk_processing_link_stats_confidence
         CHECK (confidence IN ('HIGH', 'MEDIUM', 'LOW')),
     CONSTRAINT chk_processing_link_stats_raw_stats_object

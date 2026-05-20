@@ -110,6 +110,49 @@ class JobProcessor:
 
         try:
             crawl_artifact = await crawl_and_parse(job.source_url, self._settings)
+            if self._is_empty_instagram_crawl(crawl_artifact):
+                error_code = "EMPTY_INSTAGRAM_CRAWL"
+                error_message = (
+                    "Instagram crawl returned empty content and no OG source; "
+                    "see crawled content raw_metadata for diagnostics."
+                )
+                logger.warning(
+                    (
+                        "job failed due to empty instagram crawl job_id=%s source_url=%s "
+                        "og_source=%s response_status=%s html_len=%s body_text_len=%s "
+                        "og_meta_count=%s login_form_present=%s challenge_marker_present=%s"
+                    ),
+                    job.job_id,
+                    job.source_url,
+                    self._instagram_metadata(crawl_artifact).get("og_source"),
+                    (crawl_artifact.raw_metadata or {}).get("response_status"),
+                    (crawl_artifact.raw_metadata or {}).get("html_len"),
+                    (crawl_artifact.raw_metadata or {}).get("body_text_len"),
+                    self._instagram_metadata(crawl_artifact).get("og_meta_count"),
+                    self._instagram_metadata(crawl_artifact).get("login_form_present"),
+                    self._instagram_metadata(crawl_artifact).get("challenge_marker_present"),
+                )
+                await self._persist_outputs(
+                    job=job,
+                    crawl_artifact=crawl_artifact,
+                    extraction_result=None,
+                    place_candidates=[],
+                    resolved_places=[],
+                )
+                await self._mark_failed(job.job_id, error_message, error_code=error_code)
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                return JobProcessOutcome(
+                    processed=True,
+                    succeeded=False,
+                    timed_out=False,
+                    elapsed_ms=elapsed_ms,
+                    retryable=True,
+                    error_code=error_code,
+                    error_message=error_message,
+                    attempt_count=job.attempt_count,
+                    max_attempts=job.max_attempts,
+                )
+
             extraction_result = await self._extract_result(job.source_url, crawl_artifact)
             place_candidates, resolved_places = await self._enrich_place(
                 extraction_result,
@@ -123,24 +166,10 @@ class JobProcessor:
                 len(resolved_places),
             )
 
-            await self._repository.upsert_crawled_content(
-                job_id=job.job_id,
-                source_url=crawl_artifact.url,
-                source_type=crawl_artifact.source_type or "GENERIC_WEB",
-                content_text=crawl_artifact.content_text,
-                extraction_method=crawl_artifact.extraction_method,
-                raw_metadata=crawl_artifact.raw_metadata,
-            )
-            if crawl_artifact.link_stats is not None:
-                await self._repository.upsert_link_stats(
-                    job_id=job.job_id,
-                    **self._link_stats_kwargs(crawl_artifact.link_stats),
-                )
-            await self._repository.upsert_job_result(
-                job_id=job.job_id,
-                extraction_result=(
-                    as_extraction_result_dict(extraction_result) if extraction_result else None
-                ),
+            await self._persist_outputs(
+                job=job,
+                crawl_artifact=crawl_artifact,
+                extraction_result=extraction_result,
                 place_candidates=place_candidates,
                 resolved_places=resolved_places,
             )
@@ -157,10 +186,7 @@ class JobProcessor:
             logger.exception("job processing failed job_id=%s", job_id)
             error_code = self._error_code(exc)
             error_message = f"{exc.__class__.__name__}: {exc}"
-            try:
-                await self._repository.mark_failed(job_id, error_message, error_code=error_code)
-            except TypeError:
-                await self._repository.mark_failed(job_id, error_message)
+            await self._mark_failed(job_id, error_message, error_code=error_code)
             elapsed_ms = int((time.monotonic() - started) * 1000)
             timed_out = isinstance(exc, (asyncio.TimeoutError, TimeoutError)) or (
                 exc.__class__.__name__ == "PlaywrightTimeoutError"
@@ -176,6 +202,66 @@ class JobProcessor:
                 attempt_count=job.attempt_count,
                 max_attempts=job.max_attempts,
             )
+
+    async def _persist_outputs(
+        self,
+        *,
+        job: JobRecord,
+        crawl_artifact: CrawlArtifact,
+        extraction_result: ExtractionResult | None,
+        place_candidates: list[dict[str, object]],
+        resolved_places: list[dict[str, object]],
+    ) -> None:
+        await self._repository.upsert_crawled_content(
+            job_id=job.job_id,
+            source_url=crawl_artifact.url,
+            source_type=crawl_artifact.source_type or "GENERIC_WEB",
+            content_text=crawl_artifact.content_text,
+            extraction_method=crawl_artifact.extraction_method,
+            raw_metadata=crawl_artifact.raw_metadata,
+        )
+        if crawl_artifact.link_stats is not None:
+            await self._repository.upsert_link_stats(
+                job_id=job.job_id,
+                **self._link_stats_kwargs(crawl_artifact.link_stats),
+            )
+        await self._repository.upsert_job_result(
+            job_id=job.job_id,
+            extraction_result=(
+                as_extraction_result_dict(extraction_result) if extraction_result else None
+            ),
+            place_candidates=place_candidates,
+            resolved_places=resolved_places,
+        )
+
+    async def _mark_failed(
+        self,
+        job_id: UUID,
+        error_message: str,
+        *,
+        error_code: str | None = None,
+    ) -> None:
+        try:
+            await self._repository.mark_failed(job_id, error_message, error_code=error_code)
+        except TypeError:
+            await self._repository.mark_failed(job_id, error_message)
+
+    @staticmethod
+    def _is_empty_instagram_crawl(crawl_artifact: CrawlArtifact) -> bool:
+        instagram_metadata = JobProcessor._instagram_metadata(crawl_artifact)
+        return (
+            crawl_artifact.source_type == "INSTAGRAM"
+            and not (crawl_artifact.content_text or "").strip()
+            and str(instagram_metadata.get("og_source") or "none").strip().lower() == "none"
+        )
+
+    @staticmethod
+    def _instagram_metadata(crawl_artifact: CrawlArtifact) -> dict:
+        raw_metadata = crawl_artifact.raw_metadata or {}
+        instagram_metadata = raw_metadata.get("instagram")
+        if isinstance(instagram_metadata, dict):
+            return instagram_metadata
+        return raw_metadata
 
     async def _extract_result(
         self,

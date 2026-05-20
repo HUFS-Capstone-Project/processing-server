@@ -9,9 +9,12 @@ def test_15k_likes_and_plain_comments() -> None:
 
     assert parsed is not None
     assert parsed["likes"] == 15000
+    assert parsed["likes_text"] == "15K"
     assert parsed["comments"] == 177
+    assert parsed["comments_text"] == "177"
     assert parsed["username"] == "boldpage.global"
     assert parsed["posted_at"] == "April 2, 2026"
+    assert parsed["posted_at_text"] == "April 2, 2026"
     assert "great brunch" in parsed["caption"]
 
 

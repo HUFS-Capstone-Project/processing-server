@@ -111,7 +111,10 @@ def test_get_job_result_returns_public_contract_only() -> None:
         source_type="INSTAGRAM",
         content_text="Common Mansion review",
         extraction_method="INSTAGRAM_OG_META",
-        raw_metadata={"caption": "Common Mansion review"},
+        raw_metadata={
+            "extraction_source": "instagram_og_meta",
+            "instagram": {"og_source": "og:description"},
+        },
         created_at=now,
         updated_at=now,
     )

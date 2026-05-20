@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from app.core.config import Settings
 from app.domain.job.model import CrawlArtifact
@@ -27,11 +28,12 @@ async def crawl_and_parse(url: str, settings: Settings) -> CrawlArtifact:
             content_text = parsed_metadata.get("caption") or clean_text
 
     raw_metadata = dict(content.raw_metadata or {})
-    if parsed_metadata:
-        raw_metadata.update(parsed_metadata)
-    content.raw_metadata = raw_metadata
-
-    link_stats = await LinkStatsExtractorRegistry().extract_best_effort(content)
+    stats_content = (
+        replace(content, raw_metadata=parsed_metadata)
+        if parsed_metadata
+        else content
+    )
+    link_stats = await LinkStatsExtractorRegistry().extract_best_effort(stats_content)
     logger.info(
         (
             "crawl extracted source_url=%s selected_extractor=%s source_type=%s "
