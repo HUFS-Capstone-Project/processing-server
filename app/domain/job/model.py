@@ -62,11 +62,38 @@ class JobRecord:
 @dataclass(slots=True)
 class JobResultRecord:
     job_id: UUID
-    caption: str | None
-    instagram_meta: dict[str, Any] | None
     extraction_result: dict[str, Any] | None
     place_candidates: list[dict[str, Any]]
     resolved_places: list[dict[str, Any]]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(slots=True)
+class CrawledContentRecord:
+    job_id: UUID
+    source_url: str
+    source_type: str
+    content_text: str
+    extraction_method: str | None
+    raw_metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(slots=True)
+class LinkStatsRecord:
+    job_id: UUID
+    source_url: str
+    source_type: str
+    like_count: int | None
+    comment_count: int | None
+    posted_at: str | None
+    collected_at: datetime | None
+    stats_source: str
+    confidence: str
+    unavailable_reason: str | None
+    raw_stats: dict[str, Any]
     created_at: datetime
     updated_at: datetime
 
@@ -146,10 +173,12 @@ class PlaceCandidate:
 class CrawlArtifact:
     url: str
     html: str | None
-    text: str
+    content_text: str
     media_type: str | None
-    caption: str | None
-    instagram_meta: dict[str, Any] | None
+    source_type: str | None = None
+    extraction_method: str | None = None
+    raw_metadata: dict[str, Any] | None = None
+    link_stats: Any | None = None
 
 
 def as_place_dict(place: PlaceCandidate) -> dict[str, Any]:

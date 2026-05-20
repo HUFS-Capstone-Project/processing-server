@@ -46,6 +46,8 @@ class FakeRepository:
     def __init__(self, job: JobRecord) -> None:
         self._job = job
         self.saved_result: dict | None = None
+        self.saved_content: dict | None = None
+        self.saved_link_stats: dict | None = None
         self.succeeded = False
         self.failed: str | None = None
 
@@ -56,6 +58,14 @@ class FakeRepository:
 
     async def upsert_job_result(self, **kwargs):
         self.saved_result = kwargs
+        return None
+
+    async def upsert_crawled_content(self, **kwargs):
+        self.saved_content = kwargs
+        return None
+
+    async def upsert_link_stats(self, **kwargs):
+        self.saved_link_stats = kwargs
         return None
 
     async def mark_succeeded(self, job_id: UUID):
@@ -224,10 +234,8 @@ def test_processor_success(monkeypatch) -> None:
         return CrawlArtifact(
             url=url,
             html=None,
-            text="#yeonnamcafe review",
+            content_text="#yeonnamcafe review",
             media_type="reel",
-            caption="#yeonnamcafe review",
-            instagram_meta={"caption": "#yeonnamcafe review"},
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -241,13 +249,14 @@ def test_processor_success(monkeypatch) -> None:
 
     assert repo.succeeded is True
     assert repo.saved_result is not None
-    assert repo.saved_result["caption"] == "#yeonnamcafe review"
+    assert repo.saved_content is not None
+    assert repo.saved_content["content_text"] == "#yeonnamcafe review"
     assert repo.saved_result["extraction_result"] is None
     assert repo.failed is None
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
-def test_processor_passes_caption_to_extraction_client(monkeypatch) -> None:
+def test_processor_passes_content_text_to_extraction_client(monkeypatch) -> None:
     job = _new_job()
     repo = FakeRepository(job)
     settings = Settings()
@@ -265,10 +274,8 @@ def test_processor_passes_caption_to_extraction_client(monkeypatch) -> None:
         return CrawlArtifact(
             url=url,
             html=None,
-            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            content_text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
             media_type="reel",
-            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -335,10 +342,8 @@ def test_processor_tries_broader_location_hints_before_keyword_only(monkeypatch)
         return CrawlArtifact(
             url=url,
             html=None,
-            text="Geumdonok 서울 서초구 방배로 23길 31-6",
+            content_text="Geumdonok 서울 서초구 방배로 23길 31-6",
             media_type="reel",
-            caption="Geumdonok 서울 서초구 방배로 23길 31-6",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -394,10 +399,8 @@ def test_processor_falls_back_to_address_only_search(monkeypatch) -> None:
         return CrawlArtifact(
             url=url,
             html=None,
-            text=f"수뢰뫼\n📍위치 : {address}",
+            content_text=f"수뢰뫼\n📍위치 : {address}",
             media_type="reel",
-            caption=f"수뢰뫼\n📍위치 : {address}",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -465,10 +468,8 @@ def test_processor_enriches_place_from_extraction_result(monkeypatch) -> None:
         return CrawlArtifact(
             url=url,
             html=None,
-            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            content_text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
             media_type="reel",
-            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -549,10 +550,8 @@ def test_processor_enriches_multiple_places_from_extraction_result(monkeypatch) 
         return CrawlArtifact(
             url=url,
             html=None,
-            text="서울에서 만나는 비주얼 디저트 카페들",
+            content_text="서울에서 만나는 비주얼 디저트 카페들",
             media_type="reel",
-            caption="서울에서 만나는 비주얼 디저트 카페들",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -603,10 +602,8 @@ def test_processor_succeeds_when_place_search_fails(monkeypatch) -> None:
         return CrawlArtifact(
             url=url,
             html=None,
-            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            content_text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
             media_type="reel",
-            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -647,10 +644,8 @@ def test_processor_drops_low_confidence_place_candidates(monkeypatch) -> None:
         return CrawlArtifact(
             url=url,
             html=None,
-            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            content_text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
             media_type="reel",
-            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -682,10 +677,8 @@ def test_processor_succeeds_when_extraction_client_fails(monkeypatch) -> None:
         return CrawlArtifact(
             url=url,
             html=None,
-            text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
+            content_text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
             media_type="reel",
-            caption="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
-            instagram_meta=None,
         )
 
     monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
@@ -700,7 +693,8 @@ def test_processor_succeeds_when_extraction_client_fails(monkeypatch) -> None:
 
     assert repo.succeeded is True
     assert repo.saved_result is not None
-    assert repo.saved_result["caption"] == "Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul"
+    assert repo.saved_content is not None
+    assert repo.saved_content["content_text"] == "Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul"
     assert repo.saved_result["extraction_result"] is None
     assert repo.failed is None
 

@@ -1,3 +1,6 @@
+-- Legacy migration. Do not use for new development resets.
+-- Use 999_reset_processing_schema_current.sql when existing processing data can be discarded.
+
 ALTER TABLE processing.jobs
 ADD COLUMN IF NOT EXISTS normalized_source_url TEXT,
 ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0,

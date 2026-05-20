@@ -1,4 +1,5 @@
 from app.domain.job.model import (
+    CrawledContentRecord,
     CrawlArtifact,
     ExtractionCertainty,
     ExtractionResult,
@@ -6,6 +7,7 @@ from app.domain.job.model import (
     JobRecord,
     JobResultRecord,
     JobStatus,
+    LinkStatsRecord,
     PlaceSearchQuery,
     PlaceCandidate,
     as_candidate_dict,
@@ -18,12 +20,14 @@ from app.domain.job.service import CreateJobCommand, InvalidJobRequest, JobServi
 
 __all__ = [
     "CrawlArtifact",
+    "CrawledContentRecord",
     "ExtractionCertainty",
     "ExtractionResult",
     "ExtractedPlace",
     "JobRecord",
     "JobResultRecord",
     "JobStatus",
+    "LinkStatsRecord",
     "PlaceSearchQuery",
     "PlaceCandidate",
     "as_candidate_dict",

@@ -10,11 +10,12 @@ from app.domain.source_classifier import classify_source_url
 from app.infra.db.repository import JobRepository
 from app.schemas.jobs import (
     ApiErrorResponse,
+    CrawledContentResponse,
     CreateJobRequest,
     CreateJobResponse,
-    InstagramMetaResponse,
     JobDebugResultResponse,
     JobResultResponse,
+    LinkStatsResponse,
     JobStatusResponse,
     ResolvedPlaceResponse,
 )
@@ -123,12 +124,15 @@ async def get_job_result(
         )
 
     result = await repository.get_job_result(jobId)
+    content = await repository.get_crawled_content(jobId)
+    link_stats = await repository.get_link_stats(jobId)
 
     return JobResultResponse(
         job_id=job.job_id,
         status=job.status,
-        caption_raw=result.caption if result else None,
-        instagram_meta=_instagram_meta_response(result.instagram_meta if result else None),
+        source_url=job.source_url,
+        content=_content_response(content),
+        link_stats=_link_stats_response(link_stats),
         resolved_places=[
             _resolved_place_response(place)
             for place in (result.resolved_places if result else [])
@@ -156,6 +160,8 @@ async def get_job_debug_result(
             detail={"code": "JOB_NOT_FOUND", "message": "Job not found."},
         )
     result = await repository.get_job_result(jobId)
+    content = await repository.get_crawled_content(jobId)
+    link_stats = await repository.get_link_stats(jobId)
     return JobDebugResultResponse(
         job_id=job.job_id,
         room_id=job.room_id,
@@ -174,21 +180,61 @@ async def get_job_debug_result(
         completed_at=job.completed_at,
         created_at=job.created_at,
         updated_at=job.updated_at,
-        caption_raw=result.caption if result else None,
-        instagram_meta=result.instagram_meta if result else None,
+        content=_content_debug_dict(content),
+        link_stats=_link_stats_debug_dict(link_stats),
         extraction_result=result.extraction_result if result else None,
         place_candidates=result.place_candidates if result else [],
         resolved_places=result.resolved_places if result else [],
     )
 
 
-def _instagram_meta_response(raw: dict[str, object] | None) -> InstagramMetaResponse | None:
-    if raw is None:
+def _content_response(content) -> CrawledContentResponse | None:
+    if content is None:
         return None
-    return InstagramMetaResponse(
-        like_count=_optional_int(raw.get("like_count", raw.get("likes"))),
-        comment_count=_optional_int(raw.get("comment_count", raw.get("comments"))),
+    return CrawledContentResponse(
+        source_type=content.source_type,
+        content_text=content.content_text,
+        extraction_method=content.extraction_method,
     )
+
+
+def _link_stats_response(link_stats) -> LinkStatsResponse | None:
+    if link_stats is None:
+        return None
+    return LinkStatsResponse(
+        like_count=link_stats.like_count,
+        comment_count=link_stats.comment_count,
+        posted_at=link_stats.posted_at,
+    )
+
+
+def _content_debug_dict(content) -> dict[str, object] | None:
+    if content is None:
+        return None
+    return {
+        "source_url": content.source_url,
+        "source_type": content.source_type,
+        "content_text": content.content_text,
+        "extraction_method": content.extraction_method,
+        "raw_metadata": content.raw_metadata,
+    }
+
+
+def _link_stats_debug_dict(link_stats) -> dict[str, object] | None:
+    if link_stats is None:
+        return None
+    return {
+        "source_url": link_stats.source_url,
+        "source_type": link_stats.source_type,
+        "like_count": link_stats.like_count,
+        "comment_count": link_stats.comment_count,
+        "posted_at": link_stats.posted_at,
+        "collected_at": link_stats.collected_at,
+        "stats_source": link_stats.stats_source,
+        "confidence": link_stats.confidence,
+        "unavailable_reason": link_stats.unavailable_reason,
+        "raw_stats": link_stats.raw_stats,
+    }
 
 
 def _resolved_place_response(place: dict[str, object]) -> ResolvedPlaceResponse:
@@ -211,15 +257,6 @@ def _optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _optional_int(value: object) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _optional_float(value: object) -> float | None:

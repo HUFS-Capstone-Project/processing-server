@@ -204,10 +204,9 @@ async def _run_live_pipeline_case(
     crawl_artifact = CrawlArtifact(
         url=f"https://www.instagram.com/reel/live-{case.case_id}/",
         html=None,
-        text=case.caption,
+        content_text=case.caption,
         media_type="reel",
-        caption=case.caption,
-        instagram_meta={"caption": case.caption},
+        raw_metadata={"caption": case.caption},
     )
     place_candidates, resolved_places = await processor._enrich_place(
         extraction_result,

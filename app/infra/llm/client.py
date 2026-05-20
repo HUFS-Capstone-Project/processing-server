@@ -13,13 +13,13 @@ from app.domain.job import ExtractionResult
 from app.schemas.extraction import ExtractionLLMResponse
 
 EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V1 = (
-    "You extract place/store information from Korean social media captions. "
+    "You extract place/store information from Korean source content text. "
     "Return only one JSON object with these exact top-level keys: store_name, "
     "address, store_name_evidence, address_evidence, certainty, places. "
     "places must be an array of objects. Each place object must have these exact "
     "keys: store_name, address, store_name_evidence, address_evidence, certainty. "
     "Extract every distinct place/store/brand that appears to be a visitable local "
-    "business, up to {max_candidates} places, preserving caption order. Captions "
+    "business, up to {max_candidates} places, preserving source text order. Source text "
     "may contain numbered lists such as 1, 2, circled numbers, or sections such as "
     "brand information, store information, or place information. When a place name "
     "line is followed by an address line, pair them together. Address lines often "
@@ -28,7 +28,7 @@ EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V1 = (
     "hashtags before choosing descriptive category phrases. A hashtag can be a real "
     "store name, for example #StoreName; prioritize it when it appears on the same "
     "line as a map-pin/location marker or near an address, hours, menu, or phone "
-    "number. For captions like '📍Guri Gyomun-dong #JukdongSikdang' followed by an "
+    "number. For source text like '📍Guri Gyomun-dong #JukdongSikdang' followed by an "
     "address, extract 'JukdongSikdang' as store_name and pair it with that address. "
     "Prefer specific proper-noun hashtags over generic descriptive phrases such as "
     "old restaurant, pork cutlet restaurant, cafe, dessert shop, hot place, or good "
@@ -38,7 +38,7 @@ EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V1 = (
     "taken from a hashtag, remove the leading # in store_name but keep the original "
     "hashtag substring in store_name_evidence. Do not invent missing values. Use "
     "null when unknown. Evidence values must be exact substrings copied from the "
-    "input caption. certainty must be one of high, medium, or low. The top-level "
+    "input source text. certainty must be one of high, medium, or low. The top-level "
     "legacy fields store_name, address, store_name_evidence, address_evidence, and "
     "certainty must mirror the first item in places, or null/low when places is "
     "empty. If no place is found, return places as an empty array. Do not include "
@@ -46,12 +46,12 @@ EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V1 = (
 )
 
 EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V2 = (
-    "You extract visitable place/store information from Korean social media captions. "
+    "You extract visitable place/store information from Korean source content text. "
     "Return only one JSON object with these exact top-level keys: store_name, address, "
     "store_name_evidence, address_evidence, certainty, places. places must be an array "
     "of objects with the same exact keys except places. Extract every distinct "
     "visitable local place/store/brand, up to {max_candidates} places, preserving "
-    "caption order. "
+    "source text order. "
     "Priority rules: "
     "1. Prefer explicit place markers such as 📍, 📌위치, 위치, 상호명, 매장명, 가게, "
     "or 장소. Text after the marker is usually the store_name. If a marker line is "
@@ -74,7 +74,7 @@ EXTRACTION_SYSTEM_PROMPT_TEMPLATE_V2 = (
     "Address lines often start with map-pin markers, address/location labels, or "
     "Korean address units such as city, gu, gun, dong, eup, myeon, ri, ga, ro, or "
     "gil. Do not invent missing values. Use null when unknown. Evidence values must "
-    "be exact substrings copied from the input caption. certainty must be one of "
+    "be exact substrings copied from the input source text. certainty must be one of "
     "high, medium, or low. The top-level legacy fields store_name, address, "
     "store_name_evidence, address_evidence, and certainty must mirror the first item "
     "in places, or null/low when places is empty. If no place is found, return "

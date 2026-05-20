@@ -23,7 +23,6 @@ from app.services.crawler.instagram_context import (
     configure_instagram_page,
     new_instagram_browser_context,
 )
-from app.services.crawler.instagram_reel import is_instagram_media_url
 
 logger = logging.getLogger("processing.crawler.playwright")
 
@@ -337,31 +336,29 @@ async def _fetch_instagram_og_caption(
     return None, ""
 
 
-async def fetch_page_content(url: str, settings: Settings) -> tuple[str | None, str]:
-    nav_ms = max(1, settings.crawler_timeout) * 1000
+async def fetch_instagram_media_content(url: str, settings: Settings) -> tuple[str | None, str]:
     u = str(url)
-    if is_instagram_media_url(u):
-        instagram_nav_ms = max(1, settings.instagram_navigation_timeout) * 1000
-        hard_timeout = max(
-            5.0,
-            (instagram_nav_ms + max(0, settings.instagram_og_wait_timeout_ms)) / 1000.0
-            + max(0.0, settings.crawler_hard_timeout_margin_seconds),
-        )
-        return await asyncio.wait_for(
-            _fetch_instagram_og_caption(
-                u,
-                instagram_nav_ms,
-                settings.instagram_og_wait_timeout_ms,
-                settings,
-            ),
-            timeout=hard_timeout,
-        )
+    instagram_nav_ms = max(1, settings.instagram_navigation_timeout) * 1000
+    hard_timeout = max(
+        5.0,
+        (instagram_nav_ms + max(0, settings.instagram_og_wait_timeout_ms)) / 1000.0
+        + max(0.0, settings.crawler_hard_timeout_margin_seconds),
+    )
+    return await asyncio.wait_for(
+        _fetch_instagram_og_caption(
+            u,
+            instagram_nav_ms,
+            settings.instagram_og_wait_timeout_ms,
+            settings,
+        ),
+        timeout=hard_timeout,
+    )
+
+
+async def fetch_generic_web_content(url: str, settings: Settings) -> tuple[str | None, str]:
+    nav_ms = max(1, settings.crawler_timeout) * 1000
     hard_timeout = max(5.0, nav_ms / 1000.0 + max(0.0, settings.crawler_hard_timeout_margin_seconds))
-    return await asyncio.wait_for(_fetch_page_html_and_text(u, nav_ms, settings), timeout=hard_timeout)
-
-
-async def fetch_page_html_and_text(url: str, settings: Settings) -> tuple[str | None, str]:
-    return await fetch_page_content(url, settings)
+    return await asyncio.wait_for(_fetch_page_html_and_text(str(url), nav_ms, settings), timeout=hard_timeout)
 
 
 async def shutdown_crawler_runtime() -> None:

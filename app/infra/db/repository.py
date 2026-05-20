@@ -8,7 +8,13 @@ from uuid import UUID
 
 import asyncpg  # type: ignore[import-untyped]
 
-from app.domain.job.model import JobRecord, JobResultRecord, JobStatus
+from app.domain.job.model import (
+    CrawledContentRecord,
+    JobRecord,
+    JobResultRecord,
+    JobStatus,
+    LinkStatsRecord,
+)
 
 
 class JobRepository:
@@ -23,6 +29,14 @@ class JobRepository:
     @property
     def _results_table(self) -> str:
         return f"{self._schema}.job_results"
+
+    @property
+    def _crawled_contents_table(self) -> str:
+        return f"{self._schema}.crawled_contents"
+
+    @property
+    def _link_stats_table(self) -> str:
+        return f"{self._schema}.link_stats"
 
     async def create_job(
         self,
@@ -82,6 +96,20 @@ class JobRepository:
             job_id,
         )
         return self._to_job_result_record(row) if row else None
+
+    async def get_crawled_content(self, job_id: UUID) -> CrawledContentRecord | None:
+        row = await self._pool.fetchrow(
+            f"SELECT * FROM {self._crawled_contents_table} WHERE job_id = $1",
+            job_id,
+        )
+        return self._to_crawled_content_record(row) if row else None
+
+    async def get_link_stats(self, job_id: UUID) -> LinkStatsRecord | None:
+        row = await self._pool.fetchrow(
+            f"SELECT * FROM {self._link_stats_table} WHERE job_id = $1",
+            job_id,
+        )
+        return self._to_link_stats_record(row) if row else None
 
     async def claim_job(self, job_id: UUID) -> JobRecord | None:
         row = await self._pool.fetchrow(
@@ -233,8 +261,6 @@ class JobRepository:
         self,
         *,
         job_id: UUID,
-        caption: str | None,
-        instagram_meta: dict[str, Any] | None,
         extraction_result: dict[str, Any] | None = None,
         place_candidates: list[dict[str, Any]] | None = None,
         resolved_places: list[dict[str, Any]] | None = None,
@@ -244,18 +270,14 @@ class JobRepository:
             INSERT INTO {self._results_table}
                 (
                     job_id,
-                    caption,
-                    instagram_meta,
                     extraction_result,
                     place_candidates,
                     resolved_places
                 )
             VALUES
-                ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb)
+                ($1, $2::jsonb, $3::jsonb, $4::jsonb)
             ON CONFLICT (job_id)
             DO UPDATE SET
-                caption = EXCLUDED.caption,
-                instagram_meta = EXCLUDED.instagram_meta,
                 extraction_result = EXCLUDED.extraction_result,
                 place_candidates = EXCLUDED.place_candidates,
                 resolved_places = EXCLUDED.resolved_places,
@@ -263,8 +285,6 @@ class JobRepository:
             RETURNING *
             """,
             job_id,
-            caption,
-            json.dumps(instagram_meta or {}),
             json.dumps(extraction_result) if extraction_result is not None else None,
             json.dumps(place_candidates or []),
             json.dumps(resolved_places or []),
@@ -272,6 +292,114 @@ class JobRepository:
         if row is None:
             raise RuntimeError("Failed to upsert job result")
         return self._to_job_result_record(row)
+
+    async def upsert_crawled_content(
+        self,
+        *,
+        job_id: UUID,
+        source_url: str,
+        source_type: str,
+        content_text: str,
+        extraction_method: str | None = None,
+        raw_metadata: dict[str, Any] | None = None,
+    ) -> CrawledContentRecord:
+        row = await self._pool.fetchrow(
+            f"""
+            INSERT INTO {self._crawled_contents_table}
+                (
+                    job_id,
+                    source_url,
+                    source_type,
+                    content_text,
+                    extraction_method,
+                    raw_metadata
+                )
+            VALUES
+                ($1, $2, $3, $4, $5, $6::jsonb)
+            ON CONFLICT (job_id)
+            DO UPDATE SET
+                source_url = EXCLUDED.source_url,
+                source_type = EXCLUDED.source_type,
+                content_text = EXCLUDED.content_text,
+                extraction_method = EXCLUDED.extraction_method,
+                raw_metadata = EXCLUDED.raw_metadata,
+                updated_at = NOW()
+            RETURNING *
+            """,
+            job_id,
+            source_url,
+            source_type,
+            content_text,
+            extraction_method,
+            json.dumps(raw_metadata or {}),
+        )
+        if row is None:
+            raise RuntimeError("Failed to upsert crawled content")
+        return self._to_crawled_content_record(row)
+
+    async def upsert_link_stats(
+        self,
+        *,
+        job_id: UUID,
+        source_url: str,
+        source_type: str,
+        like_count: int | None = None,
+        comment_count: int | None = None,
+        posted_at: str | None = None,
+        collected_at: datetime | None = None,
+        stats_source: str,
+        confidence: str,
+        unavailable_reason: str | None = None,
+        raw_stats: dict[str, Any] | None = None,
+    ) -> LinkStatsRecord:
+        row = await self._pool.fetchrow(
+            f"""
+            INSERT INTO {self._link_stats_table}
+                (
+                    job_id,
+                    source_url,
+                    source_type,
+                    like_count,
+                    comment_count,
+                    posted_at,
+                    collected_at,
+                    stats_source,
+                    confidence,
+                    unavailable_reason,
+                    raw_stats
+                )
+            VALUES
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+            ON CONFLICT (job_id)
+            DO UPDATE SET
+                source_url = EXCLUDED.source_url,
+                source_type = EXCLUDED.source_type,
+                like_count = EXCLUDED.like_count,
+                comment_count = EXCLUDED.comment_count,
+                posted_at = EXCLUDED.posted_at,
+                collected_at = EXCLUDED.collected_at,
+                stats_source = EXCLUDED.stats_source,
+                confidence = EXCLUDED.confidence,
+                unavailable_reason = EXCLUDED.unavailable_reason,
+                raw_stats = EXCLUDED.raw_stats,
+                updated_at = NOW()
+            RETURNING *
+            """,
+            job_id,
+            source_url,
+            source_type,
+            like_count,
+            comment_count,
+            posted_at,
+            collected_at,
+            stats_source,
+            confidence,
+            unavailable_reason,
+            json.dumps(raw_stats or {}),
+        )
+        if row is None:
+            raise RuntimeError("Failed to upsert link stats")
+        return self._to_link_stats_record(row)
 
     def _to_job_record(self, row: asyncpg.Record) -> JobRecord:
         return JobRecord(
@@ -296,13 +424,38 @@ class JobRepository:
     def _to_job_result_record(self, row: asyncpg.Record) -> JobResultRecord:
         return JobResultRecord(
             job_id=row["job_id"],
-            caption=row["caption"],
-            instagram_meta=self._json_to_dict(row["instagram_meta"]),
             extraction_result=self._json_to_dict(row["extraction_result"]),
             place_candidates=self._json_to_list(row["place_candidates"]),
-            resolved_places=self._json_to_list(
-                self._row_get(row, "resolved_places", "selected_places"),
-            ),
+            resolved_places=self._json_to_list(row["resolved_places"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _to_crawled_content_record(self, row: asyncpg.Record) -> CrawledContentRecord:
+        return CrawledContentRecord(
+            job_id=row["job_id"],
+            source_url=row["source_url"],
+            source_type=row["source_type"],
+            content_text=row["content_text"],
+            extraction_method=self._row_get(row, "extraction_method"),
+            raw_metadata=self._json_to_dict(row["raw_metadata"]) or {},
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _to_link_stats_record(self, row: asyncpg.Record) -> LinkStatsRecord:
+        return LinkStatsRecord(
+            job_id=row["job_id"],
+            source_url=row["source_url"],
+            source_type=row["source_type"],
+            like_count=self._optional_int(self._row_get(row, "like_count")),
+            comment_count=self._optional_int(self._row_get(row, "comment_count")),
+            posted_at=self._row_get(row, "posted_at"),
+            collected_at=self._row_get(row, "collected_at"),
+            stats_source=row["stats_source"],
+            confidence=row["confidence"],
+            unavailable_reason=self._row_get(row, "unavailable_reason"),
+            raw_stats=self._json_to_dict(row["raw_stats"]) or {},
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -345,4 +498,13 @@ class JobRepository:
         if isinstance(value, list):
             return value
         return list(value)
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 

@@ -8,12 +8,13 @@ from app.schemas.business_hours import (
 )
 from app.schemas.jobs import (
     ApiErrorResponse,
+    CrawledContentResponse,
     CreateJobRequest,
     CreateJobResponse,
-    InstagramMetaResponse,
     JobDebugResultResponse,
     JobResultResponse,
     JobStatusResponse,
+    LinkStatsResponse,
     ResolvedPlaceResponse,
 )
 
@@ -22,14 +23,15 @@ __all__ = [
     "BusinessHoursJobResponse",
     "BusinessHoursJobStatusResponse",
     "BusinessHoursPlaceResponse",
+    "CrawledContentResponse",
     "CreateJobRequest",
     "CreateBusinessHoursJobRequest",
     "CreateBusinessHoursJobResponse",
     "CreateJobResponse",
-    "InstagramMetaResponse",
     "JobDebugResultResponse",
     "JobResultResponse",
     "JobStatusResponse",
+    "LinkStatsResponse",
     "ResolvedPlaceResponse",
     "ExtractionLLMResponse",
 ]

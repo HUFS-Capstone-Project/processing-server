@@ -47,11 +47,9 @@ class FakePool:
         now = datetime.now(timezone.utc)
         return {
             "job_id": args[0],
-            "caption": args[1],
-            "instagram_meta": args[2],
-            "extraction_result": args[3],
-            "place_candidates": args[4],
-            "resolved_places": args[5],
+            "extraction_result": args[1],
+            "place_candidates": args[2],
+            "resolved_places": args[3],
             "created_at": now,
             "updated_at": now,
         }
@@ -99,8 +97,6 @@ def test_upsert_job_result_persists_extraction_result() -> None:
     record = _run(
         repository.upsert_job_result(
             job_id=job_id,
-            caption="Common Mansion review",
-            instagram_meta={"media_type": "reel"},
             extraction_result=extraction_result,
             place_candidates=[place_result],
             resolved_places=[place_result],
@@ -112,8 +108,6 @@ def test_upsert_job_result_persists_extraction_result() -> None:
     assert "extraction_result = EXCLUDED.extraction_result" in pool.sql
     assert pool.args == (
         job_id,
-        "Common Mansion review",
-        json.dumps({"media_type": "reel"}),
         json.dumps(extraction_result),
         json.dumps([place_result]),
         json.dumps([place_result]),
@@ -138,8 +132,6 @@ def test_get_job_result_maps_extraction_result() -> None:
     pool = FakePool(
         {
             "job_id": job_id,
-            "caption": "caption",
-            "instagram_meta": json.dumps({"caption": "caption"}),
             "extraction_result": json.dumps(extraction_result),
             "place_candidates": json.dumps([]),
             "resolved_places": json.dumps([]),

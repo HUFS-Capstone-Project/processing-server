@@ -9,11 +9,6 @@ from pydantic import BaseModel, Field, HttpUrl
 from app.domain.job.model import JobStatus
 
 
-class InstagramMetaResponse(BaseModel):
-    like_count: int | None = None
-    comment_count: int | None = None
-
-
 class ResolvedPlaceResponse(BaseModel):
     kakao_place_id: str
     place_name: str
@@ -54,11 +49,30 @@ class JobStatusResponse(BaseModel):
 class JobResultResponse(BaseModel):
     job_id: UUID
     status: JobStatus
-    caption_raw: str | None
-    instagram_meta: InstagramMetaResponse | None = None
+    source_url: str
+    content: CrawledContentResponse | None = None
+    link_stats: LinkStatsResponse | None = None
     resolved_places: list[ResolvedPlaceResponse] = Field(default_factory=list)
     error_code: str | None = None
     error_message: str | None = None
+
+
+class CrawledContentResponse(BaseModel):
+    source_type: str
+    content_text: str = Field(
+        ...,
+        description=(
+            "Normalized source content text. For Instagram, this is the post/reel caption "
+            "without likes, comments, account name, or posted date metadata."
+        ),
+    )
+    extraction_method: str | None = None
+
+
+class LinkStatsResponse(BaseModel):
+    like_count: int | None = None
+    comment_count: int | None = None
+    posted_at: str | None = None
 
 
 class JobDebugResultResponse(BaseModel):
@@ -79,8 +93,8 @@ class JobDebugResultResponse(BaseModel):
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
-    caption_raw: str | None = None
-    instagram_meta: dict[str, Any] | None = None
+    content: dict[str, Any] | None = None
+    link_stats: dict[str, Any] | None = None
     extraction_result: dict[str, Any] | None = None
     place_candidates: list[dict[str, Any]] = Field(default_factory=list)
     resolved_places: list[dict[str, Any]] = Field(default_factory=list)

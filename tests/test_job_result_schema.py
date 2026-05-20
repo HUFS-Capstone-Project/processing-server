@@ -10,8 +10,17 @@ def test_job_result_response_exposes_only_public_fields() -> None:
     response = JobResultResponse(
         job_id=uuid4(),
         status=JobStatus.SUCCEEDED,
-        caption_raw="caption",
-        instagram_meta={"like_count": 1, "comment_count": 2},
+        source_url="https://example.com/post",
+        content={
+            "source_type": "GENERIC_WEB",
+            "content_text": "caption",
+            "extraction_method": "GENERIC_WEB_INNER_TEXT",
+        },
+        link_stats={
+            "like_count": 1,
+            "comment_count": 2,
+            "posted_at": "April 2, 2026",
+        },
         resolved_places=[
             {
                 "kakao_place_id": "123",
@@ -32,11 +41,17 @@ def test_job_result_response_exposes_only_public_fields() -> None:
 
     dumped = response.model_dump()
 
-    assert dumped["caption_raw"] == "caption"
-    assert dumped["instagram_meta"] == {"like_count": 1, "comment_count": 2}
+    assert dumped["content"]["content_text"] == "caption"
+    assert dumped["link_stats"]["like_count"] == 1
+    assert dumped["link_stats"]["comment_count"] == 2
+    assert dumped["link_stats"]["posted_at"] == "April 2, 2026"
+    assert "stats_source" not in dumped["link_stats"]
+    assert "confidence" not in dumped["link_stats"]
     assert dumped["resolved_places"][0]["longitude"] == 127.0
     assert "extraction_result" not in dumped
     assert "place_candidates" not in dumped
     assert "primary_place" not in dumped
     assert "selected_places" not in dumped
+    assert "caption_raw" not in dumped
+    assert "instagram_meta" not in dumped
 

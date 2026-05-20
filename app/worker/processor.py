@@ -45,6 +45,10 @@ class JobRepositoryPort(Protocol):
 
     async def upsert_job_result(self, **kwargs): ...
 
+    async def upsert_crawled_content(self, **kwargs): ...
+
+    async def upsert_link_stats(self, **kwargs): ...
+
     async def mark_succeeded(self, job_id: UUID): ...
 
     async def mark_failed(
@@ -112,17 +116,28 @@ class JobProcessor:
                 crawl_artifact,
             )
             logger.info(
-                "job crawl completed job_id=%s caption_len=%s place_candidates=%s resolved_places=%s",
+                "job crawl completed job_id=%s content_text_len=%s place_candidates=%s resolved_places=%s",
                 job.job_id,
-                len(crawl_artifact.caption or ""),
+                len(crawl_artifact.content_text),
                 len(place_candidates),
                 len(resolved_places),
             )
 
+            await self._repository.upsert_crawled_content(
+                job_id=job.job_id,
+                source_url=crawl_artifact.url,
+                source_type=crawl_artifact.source_type or "GENERIC_WEB",
+                content_text=crawl_artifact.content_text,
+                extraction_method=crawl_artifact.extraction_method,
+                raw_metadata=crawl_artifact.raw_metadata,
+            )
+            if crawl_artifact.link_stats is not None:
+                await self._repository.upsert_link_stats(
+                    job_id=job.job_id,
+                    **self._link_stats_kwargs(crawl_artifact.link_stats),
+                )
             await self._repository.upsert_job_result(
                 job_id=job.job_id,
-                caption=crawl_artifact.caption,
-                instagram_meta=crawl_artifact.instagram_meta,
                 extraction_result=(
                     as_extraction_result_dict(extraction_result) if extraction_result else None
                 ),
@@ -167,12 +182,12 @@ class JobProcessor:
         source_url: str,
         crawl_artifact: CrawlArtifact,
     ) -> ExtractionResult | None:
-        if not self._extraction_client or not crawl_artifact.caption:
+        if not self._extraction_client or not crawl_artifact.content_text:
             return None
 
         try:
             return await self._extraction_client.extract(
-                text=crawl_artifact.caption,
+                text=crawl_artifact.content_text,
                 source_url=source_url,
                 media_type=crawl_artifact.media_type,
             )
@@ -248,7 +263,7 @@ class JobProcessor:
             evidence_text=(
                 extracted_place.store_name_evidence
                 or extracted_place.address_evidence
-                or crawl_artifact.caption
+                or crawl_artifact.content_text
                 or ""
             ),
             original_text=store_name,
@@ -391,3 +406,21 @@ class JobProcessor:
                     return " ".join(prefix + [f"{token}{rest[idx + 1]}"])
                 return " ".join(prefix + [token])
         return None
+
+    @staticmethod
+    def _link_stats_kwargs(link_stats) -> dict[str, object]:
+        stats_source = getattr(link_stats, "stats_source", None)
+        confidence = getattr(link_stats, "confidence", None)
+        source_type = getattr(link_stats, "source_type", None)
+        return {
+            "source_url": getattr(link_stats, "source_url"),
+            "source_type": getattr(source_type, "value", source_type),
+            "like_count": getattr(link_stats, "like_count", None),
+            "comment_count": getattr(link_stats, "comment_count", None),
+            "posted_at": getattr(link_stats, "posted_at", None),
+            "collected_at": getattr(link_stats, "collected_at", None),
+            "stats_source": getattr(stats_source, "value", stats_source),
+            "confidence": getattr(confidence, "value", confidence),
+            "unavailable_reason": getattr(link_stats, "unavailable_reason", None),
+            "raw_stats": getattr(link_stats, "raw_stats", None),
+        }

@@ -1,3 +1,6 @@
+-- Legacy migration. Do not use for new development resets.
+-- Use 999_reset_processing_schema_current.sql when existing processing data can be discarded.
+
 DROP SCHEMA IF EXISTS processing CASCADE;
 
 CREATE SCHEMA IF NOT EXISTS processing;

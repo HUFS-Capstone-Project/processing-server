@@ -23,24 +23,24 @@ def _load_samples(path: Path) -> list[dict[str, Any]]:
         raw = json.load(file)
 
     if not isinstance(raw, list):
-        raise ValueError("Input JSON must be a list of captions or sample objects.")
+        raise ValueError("Input JSON must be a list of source content strings or sample objects.")
 
     samples: list[dict[str, Any]] = []
     for index, item in enumerate(raw, start=1):
         if isinstance(item, str):
-            samples.append({"id": index, "caption": item})
+            samples.append({"id": index, "content_text": item})
             continue
-        if isinstance(item, dict) and isinstance(item.get("caption"), str):
+        if isinstance(item, dict) and isinstance(item.get("content_text"), str):
             samples.append(
                 {
                     "id": item.get("id", index),
-                    "caption": item["caption"],
+                    "content_text": item["content_text"],
                     "source_url": item.get("source_url"),
                     "media_type": item.get("media_type", "reel"),
                 }
             )
             continue
-        raise ValueError(f"Sample #{index} must be a string or an object with a caption field.")
+        raise ValueError(f"Sample #{index} must be a string or an object with a content_text field.")
     return samples
 
 
@@ -52,19 +52,19 @@ async def _run_samples(input_path: Path, output_path: Path) -> None:
 
     for sample in samples:
         sample_id = sample["id"]
-        caption = sample["caption"]
+        content_text = sample["content_text"]
         print(f"[{sample_id}] extracting...", flush=True)
 
         try:
             prediction = await extractor.extract(
-                text=caption,
+                text=content_text,
                 source_url=sample.get("source_url") or f"https://www.instagram.com/reel/sample-{sample_id}/",
                 media_type=sample.get("media_type") or "reel",
             )
             results.append(
                 {
                     "id": sample_id,
-                    "caption": caption,
+                    "content_text": content_text,
                     "prediction": as_extraction_result_dict(prediction) if prediction else None,
                     "error": None,
                 }
@@ -73,7 +73,7 @@ async def _run_samples(input_path: Path, output_path: Path) -> None:
             results.append(
                 {
                     "id": sample_id,
-                    "caption": caption,
+                    "content_text": content_text,
                     "prediction": None,
                     "error": f"{type(exc).__name__}: {exc}",
                 }
@@ -87,7 +87,7 @@ async def _run_samples(input_path: Path, output_path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run HF extraction against local caption samples.")
+    parser = argparse.ArgumentParser(description="Run HF extraction against local source content samples.")
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT_PATH)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
     args = parser.parse_args()

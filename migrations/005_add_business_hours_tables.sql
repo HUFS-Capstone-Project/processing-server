@@ -1,3 +1,6 @@
+-- Legacy migration. Do not use for new development resets.
+-- Use 999_reset_processing_schema_current.sql when existing processing data can be discarded.
+
 CREATE TABLE IF NOT EXISTS processing.business_hours_jobs (
     job_id UUID PRIMARY KEY,
     kakao_place_id TEXT NOT NULL,
