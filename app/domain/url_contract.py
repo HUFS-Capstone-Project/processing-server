@@ -26,6 +26,9 @@ def canonical_url_for(original_url: str) -> str:
     instagram_url = canonical_instagram_media_url(original_url)
     if instagram_url:
         return instagram_url
+    naver_blog_url = canonical_naver_blog_url(original_url)
+    if naver_blog_url:
+        return naver_blog_url
     return canonical_generic_url(original_url)
 
 
@@ -57,6 +60,26 @@ def is_instagram_reel_url(url: str) -> bool:
 def is_instagram_post_url(url: str) -> bool:
     media = _instagram_media_parts(url)
     return media is not None and media[0] == "post"
+
+
+def canonical_naver_blog_url(url: str) -> str | None:
+    try:
+        parsed = urlparse((url or "").strip())
+        host = (parsed.netloc or "").lower()
+        if host not in {"blog.naver.com", "m.blog.naver.com"}:
+            return None
+
+        parts = [part for part in (parsed.path or "").split("/") if part]
+        if len(parts) != 2:
+            return None
+
+        blog_id, log_no = parts[0].strip(), parts[1].strip()
+        if not blog_id or not log_no.isdigit():
+            return None
+
+        return f"https://blog.naver.com/{blog_id}/{log_no}"
+    except Exception:
+        return None
 
 
 def canonical_instagram_media_url(url: str) -> str | None:
