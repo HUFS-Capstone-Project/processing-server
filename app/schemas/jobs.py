@@ -71,8 +71,26 @@ class JobResultResponse(BaseModel):
     content: CrawledContentResponse | None = None
     link_stats: LinkStatsResponse | None = None
     resolved_places: list[ResolvedPlaceResponse] = Field(default_factory=list)
-    error_code: str | None = None
-    error_message: str | None = None
+    error_code: str | None = Field(
+        default=None,
+        description=(
+            "Machine-readable failure code when status=FAILED. Known values include "
+            "INSTAGRAM_RATE_LIMITED, EMPTY_INSTAGRAM_CRAWL, RETRYABLE_TIMEOUT."
+        ),
+        examples=["INSTAGRAM_RATE_LIMITED"],
+    )
+    error_message: str | None = Field(
+        default=None,
+        description="Human-readable failure message when status=FAILED.",
+    )
+    retryable: bool = Field(
+        default=False,
+        description=(
+            "True when the client may retry later after a failed job. "
+            "Currently true only for INSTAGRAM_RATE_LIMITED. "
+            "Does not indicate worker auto-retry is in progress."
+        ),
+    )
 
 
 class CrawledContentResponse(BaseModel):
@@ -117,8 +135,4 @@ class JobDebugResultResponse(BaseModel):
     place_candidates: list[dict[str, Any]] = Field(default_factory=list)
     resolved_places: list[dict[str, Any]] = Field(default_factory=list)
 
-
-class ApiErrorResponse(BaseModel):
-    code: str
-    message: str
 

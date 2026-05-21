@@ -16,7 +16,12 @@ from app.domain.job.model import (
     as_place_dict,
     extracted_places_from_result,
 )
-from app.domain.job.service import CreateJobCommand, InvalidJobRequest, JobService
+from app.domain.job.service import (
+    CreateJobCommand,
+    InstagramRateLimited,
+    InvalidJobRequest,
+    JobService,
+)
 
 __all__ = [
     "CrawlArtifact",
@@ -36,6 +41,7 @@ __all__ = [
     "as_place_dict",
     "extracted_places_from_result",
     "CreateJobCommand",
+    "InstagramRateLimited",
     "InvalidJobRequest",
     "JobService",
 ]

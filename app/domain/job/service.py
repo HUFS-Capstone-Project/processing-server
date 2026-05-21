@@ -6,6 +6,9 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from app.domain.job.model import JobRecord, JobResultRecord
+from app.domain.url_contract import is_instagram_media_url
+
+INSTAGRAM_RATE_LIMITED_ERROR_CODE = "INSTAGRAM_RATE_LIMITED"
 
 
 class JobRepositoryPort(Protocol):
@@ -28,6 +31,10 @@ class JobQueuePort(Protocol):
     async def enqueue(self, job_id: UUID) -> None: ...
 
 
+class InstagramCooldownPort(Protocol):
+    async def instagram_cooldown_ttl(self) -> int: ...
+
+
 @dataclass(slots=True)
 class CreateJobCommand:
     original_url: str
@@ -38,17 +45,31 @@ class InvalidJobRequest(Exception):
     pass
 
 
+class InstagramRateLimited(Exception):
+    def __init__(self, cooldown_seconds: int) -> None:
+        self.cooldown_seconds = max(0, int(cooldown_seconds))
+        super().__init__(
+            f"Instagram crawling is temporarily rate-limited. Retry after {self.cooldown_seconds} seconds."
+        )
+
+
 class JobService:
     def __init__(
         self,
         repository: JobRepositoryPort,
         queue: JobQueuePort,
+        cooldown_store: InstagramCooldownPort | None = None,
     ) -> None:
         self._repository = repository
         self._queue = queue
+        self._cooldown_store = cooldown_store
 
     async def create_job(self, command: CreateJobCommand) -> JobRecord:
         original_url = self._validate_url(command.original_url)
+        if self._cooldown_store and is_instagram_media_url(original_url):
+            cooldown_seconds = await self._cooldown_store.instagram_cooldown_ttl()
+            if cooldown_seconds > 0:
+                raise InstagramRateLimited(cooldown_seconds)
         job_id = uuid4()
         job = await self._repository.create_job(
             job_id=job_id,

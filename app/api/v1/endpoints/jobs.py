@@ -5,11 +5,18 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.security import require_internal_api_key
-from app.domain.job import CreateJobCommand, InvalidJobRequest, JobService, JobStatus
+from app.domain.job import (
+    CreateJobCommand,
+    InstagramRateLimited,
+    InvalidJobRequest,
+    JobService,
+    JobStatus,
+)
+from app.domain.job.service import INSTAGRAM_RATE_LIMITED_ERROR_CODE
 from app.domain.url_contract import crawl_url_for
 from app.infra.db.repository import JobRepository
+from app.schemas.errors import ApiErrorResponse, InstagramRateLimitErrorResponse
 from app.schemas.jobs import (
-    ApiErrorResponse,
     CrawledContentResponse,
     CreateJobRequest,
     CreateJobResponse,
@@ -21,6 +28,19 @@ from app.schemas.jobs import (
 )
 
 router = APIRouter()
+
+_UNAUTHORIZED_RESPONSE = {
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": ApiErrorResponse,
+        "description": "Missing or invalid X-Internal-Api-Key header.",
+    },
+}
+_NOT_FOUND_RESPONSE = {
+    status.HTTP_404_NOT_FOUND: {
+        "model": ApiErrorResponse,
+        "description": "Job not found.",
+    },
+}
 
 
 def get_job_service(request: Request) -> JobService:
@@ -37,8 +57,24 @@ def get_job_repository(request: Request) -> JobRepository:
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_internal_api_key)],
     summary="Create processing job",
-    description="Validate URL, create a processing job record, and enqueue it.",
-    responses={401: {"model": ApiErrorResponse}, 422: {"model": ApiErrorResponse}},
+    description=(
+        "Validate URL, create a processing job record, and enqueue it. "
+        "Instagram URLs are rejected with 429 while the global Instagram cooldown is active."
+    ),
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ApiErrorResponse,
+            "description": "Request validation failed or the submitted URL is invalid.",
+        },
+        status.HTTP_429_TOO_MANY_REQUESTS: {
+            "model": InstagramRateLimitErrorResponse,
+            "description": (
+                "Instagram global cooldown is active. The job is not created and "
+                "cooldown_seconds indicates when the client may retry."
+            ),
+        },
+    },
 )
 async def create_job(
     payload: CreateJobRequest,
@@ -56,6 +92,16 @@ async def create_job(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "INVALID_URL", "message": str(exc)},
         ) from exc
+    except InstagramRateLimited as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": INSTAGRAM_RATE_LIMITED_ERROR_CODE,
+                "message": str(exc),
+                "retryable": True,
+                "cooldown_seconds": exc.cooldown_seconds,
+            },
+        ) from exc
 
     return CreateJobResponse(
         job_id=job.job_id,
@@ -71,6 +117,10 @@ async def create_job(
     response_model=JobStatusResponse,
     dependencies=[Depends(require_internal_api_key)],
     summary="Get job status",
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        **_NOT_FOUND_RESPONSE,
+    },
 )
 async def get_job_status(
     jobId: UUID,
@@ -100,6 +150,14 @@ async def get_job_status(
     response_model=JobResultResponse,
     dependencies=[Depends(require_internal_api_key)],
     summary="Get job result",
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        **_NOT_FOUND_RESPONSE,
+        status.HTTP_409_CONFLICT: {
+            "model": ApiErrorResponse,
+            "description": "Job is still QUEUED or PROCESSING; result is not ready yet.",
+        },
+    },
 )
 async def get_job_result(
     jobId: UUID,
@@ -137,6 +195,7 @@ async def get_job_result(
         ],
         error_code=job.error_code,
         error_message=job.error_message,
+        retryable=_is_retryable_failure(job),
     )
 
 
@@ -145,6 +204,10 @@ async def get_job_result(
     response_model=JobDebugResultResponse,
     dependencies=[Depends(require_internal_api_key)],
     summary="Get internal job debug result",
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        **_NOT_FOUND_RESPONSE,
+    },
 )
 async def get_job_debug_result(
     jobId: UUID,
@@ -210,6 +273,10 @@ def _link_stats_response(link_stats) -> LinkStatsResponse | None:
         comment_count=link_stats.comment_count,
         posted_at=link_stats.posted_at,
     )
+
+
+def _is_retryable_failure(job) -> bool:
+    return job.status == JobStatus.FAILED and job.error_code == INSTAGRAM_RATE_LIMITED_ERROR_CODE
 
 
 def _content_debug_dict(content) -> dict[str, object] | None:

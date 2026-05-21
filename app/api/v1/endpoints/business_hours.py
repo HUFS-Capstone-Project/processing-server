@@ -25,8 +25,16 @@ from app.schemas.business_hours import (
     CreateBusinessHoursJobRequest,
     CreateBusinessHoursJobResponse,
 )
+from app.schemas.errors import ApiErrorResponse
 
 router = APIRouter(prefix="/business-hours")
+
+_UNAUTHORIZED_RESPONSE = {
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": ApiErrorResponse,
+        "description": "Missing or invalid X-Internal-Api-Key header.",
+    },
+}
 
 
 def get_business_hours_service(request: Request) -> BusinessHoursService:
@@ -43,6 +51,21 @@ def get_business_hours_repository(request: Request) -> BusinessHoursRepository:
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_internal_api_key)],
     summary="Create business hours crawling job",
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        status.HTTP_200_OK: {
+            "model": CreateBusinessHoursJobResponse,
+            "description": "Cache hit; existing business hours were returned without creating a new job.",
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ApiErrorResponse,
+            "description": "Invalid Kakao place URL or request payload.",
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ApiErrorResponse,
+            "description": "Job record was created but queue enqueue failed.",
+        },
+    },
 )
 async def create_business_hours_job(
     payload: CreateBusinessHoursJobRequest,
@@ -78,6 +101,13 @@ async def create_business_hours_job(
     response_model=BusinessHoursJobStatusResponse,
     dependencies=[Depends(require_internal_api_key)],
     summary="Get business hours job status",
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        status.HTTP_404_NOT_FOUND: {
+            "model": ApiErrorResponse,
+            "description": "Business hours job not found.",
+        },
+    },
 )
 async def get_business_hours_job(
     jobId: UUID,
@@ -101,6 +131,13 @@ async def get_business_hours_job(
     response_model=BusinessHoursPlaceResponse,
     dependencies=[Depends(require_internal_api_key)],
     summary="Get cached business hours by Kakao place id",
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        status.HTTP_404_NOT_FOUND: {
+            "model": ApiErrorResponse,
+            "description": "Business hours place cache not found.",
+        },
+    },
 )
 async def get_business_hours_place(
     kakaoPlaceId: str,
@@ -152,6 +189,13 @@ def _place_response(
     response_model=BusinessHoursDebugResultResponse,
     dependencies=[Depends(require_internal_api_key)],
     summary="Get internal business hours debug result",
+    responses={
+        **_UNAUTHORIZED_RESPONSE,
+        status.HTTP_404_NOT_FOUND: {
+            "model": ApiErrorResponse,
+            "description": "Business hours job not found.",
+        },
+    },
 )
 async def get_business_hours_debug_result(
     jobId: UUID,

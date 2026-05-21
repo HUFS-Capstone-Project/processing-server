@@ -19,11 +19,13 @@ class RedisJobQueue:
         ready_key: str,
         delayed_key: str,
         processing_key: str,
+        instagram_cooldown_key: str = "processing:cooldown:instagram",
     ) -> None:
         self._client = client
         self._ready_key = ready_key
         self._delayed_key = delayed_key
         self._processing_key = processing_key
+        self._instagram_cooldown_key = instagram_cooldown_key
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "RedisJobQueue":
@@ -33,6 +35,7 @@ class RedisJobQueue:
             ready_key=settings.queue_ready_key,
             delayed_key=settings.queue_delayed_key,
             processing_key=settings.queue_processing_key,
+            instagram_cooldown_key=settings.instagram_cooldown_key,
         )
 
     @classmethod
@@ -43,6 +46,7 @@ class RedisJobQueue:
             ready_key=settings.business_hours_queue_ready_key,
             delayed_key=settings.business_hours_queue_delayed_key,
             processing_key=settings.business_hours_queue_processing_key,
+            instagram_cooldown_key=settings.instagram_cooldown_key,
         )
 
     @property
@@ -63,6 +67,19 @@ class RedisJobQueue:
     async def enqueue(self, job_id: UUID) -> None:
         await self._client.rpush(self._ready_key, str(job_id))
         logger.info("queue action=enqueue job_id=%s ready_key=%s", job_id, self._ready_key)
+
+    async def set_instagram_cooldown(self, seconds: int) -> None:
+        ttl_seconds = max(1, int(seconds))
+        await self._client.set(self._instagram_cooldown_key, "1", ex=ttl_seconds)
+        logger.warning(
+            "queue action=set_instagram_cooldown key=%s cooldown_seconds=%s",
+            self._instagram_cooldown_key,
+            ttl_seconds,
+        )
+
+    async def instagram_cooldown_ttl(self) -> int:
+        ttl = await self._client.ttl(self._instagram_cooldown_key)
+        return max(0, int(ttl)) if ttl is not None else 0
 
     async def dequeue(self, timeout_seconds: int) -> UUID | None:
         return await self.dequeue_for_processing(timeout_seconds)

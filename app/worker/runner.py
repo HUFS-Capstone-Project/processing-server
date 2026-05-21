@@ -120,6 +120,7 @@ async def run_worker() -> None:
         settings=settings,
         extraction_client=build_extraction_client(settings),
         place_search_client=build_place_search_client(settings),
+        cooldown_store=queue,
     )
 
     if settings.worker_prewarm_browser:

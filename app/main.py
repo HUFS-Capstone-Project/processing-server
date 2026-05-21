@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     business_hours_queue = RedisJobQueue.from_business_hours_settings(settings)
     repository = JobRepository(db_pool, settings.processing_schema)
     business_hours_repository = BusinessHoursRepository(db_pool, settings.processing_schema)
-    service = JobService(repository, queue)
+    service = JobService(repository, queue, cooldown_store=queue)
     business_hours_service = BusinessHoursService(
         repository=business_hours_repository,
         queue=business_hours_queue,

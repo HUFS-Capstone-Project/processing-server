@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 from playwright.async_api import Error as PlaywrightError
@@ -187,6 +188,72 @@ def test_instagram_fetch_reuses_browser_launch(monkeypatch) -> None:
 
     assert runtime.ensure_calls == 2
     assert runtime.launch_count == 1
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_instagram_fetch_returns_429_without_waiting_for_og(monkeypatch) -> None:
+    class FakeResponse:
+        status = 429
+        url = "https://www.instagram.com/reel/abc/"
+
+    class FakePage:
+        url = "https://www.instagram.com/reel/abc/"
+        wait_for_function_called = False
+
+        async def goto(self, *_args, **_kwargs):
+            return FakeResponse()
+
+        async def wait_for_function(self, *_args, **_kwargs):
+            self.wait_for_function_called = True
+            raise AssertionError("OG wait should not run for Instagram 429")
+
+        async def evaluate(self, script: str):
+            if script == service.INSTAGRAM_DIAGNOSTICS_JS:
+                return {
+                    "html_len": 256,
+                    "body_text_len": 0,
+                    "og_meta_count": 0,
+                    "empty_body": True,
+                }
+            raise AssertionError("OG extraction should not run for Instagram 429")
+
+    class FakeContext:
+        def __init__(self, page: FakePage) -> None:
+            self.page = page
+
+        async def new_page(self):
+            return self.page
+
+        async def close(self):
+            return None
+
+    page = FakePage()
+
+    async def fake_context(_browser, _settings):
+        return FakeContext(page)
+
+    async def fake_configure_page(_page, _settings):
+        return SimpleNamespace(blocked_resource_count=0)
+
+    monkeypatch.setattr(service, "new_instagram_browser_context", fake_context)
+    monkeypatch.setattr(service, "configure_instagram_page", fake_configure_page)
+
+    result = _run(
+        service._run_instagram_fetch_with_browser(
+            browser=object(),
+            launch_ms=0,
+            url="https://www.instagram.com/reel/abc/",
+            navigation_timeout_ms=12000,
+            og_wait_timeout_ms=3000,
+            settings=Settings(),
+        )
+    )
+
+    assert result.response_status == 429
+    assert result.og_wait_ms == 0
+    assert result.extract_ms == 0
+    assert result.og_wait_timed_out is False
+    assert page.wait_for_function_called is False
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")

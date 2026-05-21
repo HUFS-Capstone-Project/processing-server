@@ -102,6 +102,19 @@ class FakeExtractionClient:
         return self.result
 
 
+class FakeInstagramCooldownStore:
+    def __init__(self, ttl: int = 0) -> None:
+        self.ttl = ttl
+        self.set_calls: list[int] = []
+
+    async def instagram_cooldown_ttl(self) -> int:
+        return self.ttl
+
+    async def set_instagram_cooldown(self, seconds: int) -> None:
+        self.set_calls.append(seconds)
+        self.ttl = seconds
+
+
 class FailingExtractionClient:
     async def extract(
         self,
@@ -306,6 +319,109 @@ def test_processor_fails_empty_instagram_crawl_with_no_og_source(monkeypatch) ->
         "resolved_places": [],
     }
     assert extractor.calls == []
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_fails_instagram_429_without_retry_and_sets_cooldown(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings(instagram_rate_limit_cooldown_seconds=1800)
+    cooldown = FakeInstagramCooldownStore()
+    extractor = FakeExtractionClient(None)
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="",
+            media_type="reel",
+            source_type="INSTAGRAM",
+            extraction_method="INSTAGRAM_OG_META",
+            raw_metadata={
+                "instagram": {"og_source": "none", "og_meta_count": 0},
+                "response_status": 429,
+                "response_url": "https://www.instagram.com/reel/example/",
+                "final_url": "https://www.instagram.com/reel/example/",
+                "html_len": 128,
+                "body_text_len": 0,
+            },
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+        extraction_client=extractor,
+        cooldown_store=cooldown,
+    )
+
+    outcome = _run(processor.process_job(job.job_id))
+
+    assert outcome.succeeded is False
+    assert outcome.retryable is False
+    assert outcome.error_code == "INSTAGRAM_RATE_LIMITED"
+    assert repo.failed_error_code == "INSTAGRAM_RATE_LIMITED"
+    assert cooldown.set_calls == [1800]
+    assert repo.saved_content is not None
+    assert repo.saved_content["raw_metadata"]["response_status"] == 429
+    assert extractor.calls == []
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_fails_instagram_during_cooldown_without_crawling(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    cooldown = FakeInstagramCooldownStore(ttl=600)
+
+    async def fake_crawl(_url: str, _settings: Settings) -> CrawlArtifact:
+        raise AssertionError("crawler should not run during Instagram cooldown")
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=Settings(),
+        cooldown_store=cooldown,
+    )
+
+    outcome = _run(processor.process_job(job.job_id))
+
+    assert outcome.succeeded is False
+    assert outcome.retryable is False
+    assert outcome.error_code == "INSTAGRAM_RATE_LIMITED"
+    assert repo.failed_error_code == "INSTAGRAM_RATE_LIMITED"
+    assert repo.saved_content is None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_does_not_classify_instagram_429_as_empty_crawl(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="",
+            media_type="reel",
+            source_type="INSTAGRAM",
+            extraction_method="INSTAGRAM_OG_META",
+            raw_metadata={
+                "instagram": {"og_source": "none", "og_meta_count": 0},
+                "response_status": 429,
+                "html_len": 128,
+                "body_text_len": 0,
+            },
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(repository=repo, settings=Settings())
+    outcome = _run(processor.process_job(job.job_id))
+
+    assert outcome.error_code == "INSTAGRAM_RATE_LIMITED"
+    assert repo.failed_error_code == "INSTAGRAM_RATE_LIMITED"
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")

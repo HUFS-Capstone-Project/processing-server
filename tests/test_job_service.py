@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.domain.job import JobRecord, JobService, JobStatus
-from app.domain.job.service import CreateJobCommand, InvalidJobRequest
+from app.domain.job.service import CreateJobCommand, InstagramRateLimited, InvalidJobRequest
 
 if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -86,6 +86,14 @@ class FakeRepository:
         )
 
 
+class FakeCooldownStore:
+    def __init__(self, ttl: int) -> None:
+        self.ttl = ttl
+
+    async def instagram_cooldown_ttl(self) -> int:
+        return self.ttl
+
+
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
 def test_create_job_enqueues_once() -> None:
     repo = FakeRepository()
@@ -139,3 +147,23 @@ def test_create_job_rejects_invalid_url() -> None:
                 CreateJobCommand(original_url="ftp://invalid.example.com", room_id=uuid4())
             )
         )
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_create_job_rejects_instagram_during_global_cooldown() -> None:
+    repo = FakeRepository()
+    queue = FakeQueue(enqueued=[])
+    service = JobService(repo, queue, cooldown_store=FakeCooldownStore(ttl=600))
+
+    with pytest.raises(InstagramRateLimited) as exc_info:
+        _run(
+            service.create_job(
+                CreateJobCommand(
+                    original_url="https://www.instagram.com/reel/abcde/",
+                    room_id=uuid4(),
+                )
+            )
+        )
+
+    assert exc_info.value.cooldown_seconds == 600
+    assert queue.enqueued == []

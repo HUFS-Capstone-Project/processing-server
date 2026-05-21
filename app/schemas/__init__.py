@@ -6,8 +6,8 @@ from app.schemas.business_hours import (
     CreateBusinessHoursJobRequest,
     CreateBusinessHoursJobResponse,
 )
+from app.schemas.errors import ApiErrorResponse, InstagramRateLimitErrorResponse
 from app.schemas.jobs import (
-    ApiErrorResponse,
     CrawledContentResponse,
     CreateJobRequest,
     CreateJobResponse,
@@ -20,6 +20,7 @@ from app.schemas.jobs import (
 
 __all__ = [
     "ApiErrorResponse",
+    "InstagramRateLimitErrorResponse",
     "BusinessHoursJobResponse",
     "BusinessHoursJobStatusResponse",
     "BusinessHoursPlaceResponse",

@@ -433,6 +433,24 @@ async def _run_instagram_fetch_with_browser(
         goto_started = time.monotonic()
         response = await page.goto(url, wait_until="domcontentloaded", timeout=navigation_timeout_ms)
         goto_ms = int((time.monotonic() - goto_started) * 1000)
+        response_status = response.status if response is not None else None
+        if response_status == 429:
+            total_ms = int((time.monotonic() - started) * 1000)
+            return await _build_instagram_fetch_result(
+                page=page,
+                response=response,
+                caption="",
+                og_source="none",
+                og_wait_timed_out=False,
+                early_extract_hit=False,
+                blocked_resource_count=route_stats.blocked_resource_count,
+                launch_ms=launch_ms,
+                context_ms=context_ms,
+                goto_ms=goto_ms,
+                og_wait_ms=0,
+                extract_ms=0,
+                total_ms=total_ms,
+            )
 
         og_source, caption, extract_ms = await _extract_og_from_page(page)
         if _has_meaningful_og_payload(og_source, caption):

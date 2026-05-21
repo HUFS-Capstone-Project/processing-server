@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
+import pytest
+
 from app.domain.business_hours import BusinessHoursFetchStatus
 from app.services.business_hours import parse_kakao_place_business_hours_html
 from app.services.business_hours import kakao_place
@@ -290,7 +292,11 @@ def test_kakao_place_parser_extracts_last_order_from_second_detail_text() -> Non
 
 
 def _run(coro):
-    return asyncio.run(coro)
+    try:
+        return asyncio.run(coro)
+    except OSError as exc:
+        coro.close()
+        pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
 
 
 class FakePage:

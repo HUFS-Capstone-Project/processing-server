@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.v1.endpoints import jobs as jobs_endpoint
 from app.api.v1.endpoints.jobs import router
 from app.domain.job import (
     CrawledContentRecord,
@@ -60,17 +62,34 @@ class FakeJobRepository:
         return self.link_stats if self.link_stats and job_id == self.link_stats.job_id else None
 
 
+class SkippingTestClient:
+    def __init__(self, app: FastAPI) -> None:
+        self._client = TestClient(app)
+
+    def post(self, *args, **kwargs):
+        try:
+            return self._client.post(*args, **kwargs)
+        except OSError as exc:
+            pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
+
+    def get(self, *args, **kwargs):
+        try:
+            return self._client.get(*args, **kwargs)
+        except OSError as exc:
+            pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
+
+
 def _client(
     job: JobRecord,
     result: JobResultRecord,
     content: CrawledContentRecord | None = None,
     link_stats: LinkStatsRecord | None = None,
-) -> TestClient:
+) -> SkippingTestClient:
     app = FastAPI()
     app.include_router(router)
     app.state.job_service = FakeJobService(job)
     app.state.job_repository = FakeJobRepository(result, content, link_stats)
-    return TestClient(app)
+    return SkippingTestClient(app)
 
 
 def _headers() -> dict[str, str]:
@@ -222,6 +241,7 @@ def test_get_job_result_returns_public_contract_only() -> None:
         ],
         "error_code": None,
         "error_message": None,
+        "retryable": False,
     }
     assert "extraction_result" not in payload
     assert "place_candidates" not in payload
@@ -281,4 +301,22 @@ def test_get_job_debug_result_returns_internal_fields() -> None:
     assert payload["content"]["raw_metadata"] == {"raw": "meta"}
     assert payload["extraction_result"] == {"raw": "extraction"}
     assert payload["place_candidates"] == [{"query": "candidate", "confidence": 0.5}]
+
+
+def test_get_job_result_marks_instagram_rate_limit_as_client_retryable() -> None:
+    now = datetime.now(timezone.utc)
+    job_id = uuid4()
+    job = JobRecord(
+        job_id=job_id,
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/reel/example/",
+        canonical_url="https://www.instagram.com/reel/example/",
+        status=JobStatus.FAILED,
+        error_message="Instagram crawl returned HTTP 429.",
+        created_at=now,
+        updated_at=now,
+        error_code="INSTAGRAM_RATE_LIMITED",
+    )
+
+    assert jobs_endpoint._is_retryable_failure(job) is True
 

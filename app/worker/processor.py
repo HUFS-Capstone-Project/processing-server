@@ -21,6 +21,8 @@ from app.domain.job import (
     as_place_dict,
     extracted_places_from_result,
 )
+from app.domain.job.service import INSTAGRAM_RATE_LIMITED_ERROR_CODE
+from app.domain.url_contract import crawl_url_for, is_instagram_media_url
 from app.infra.llm import HFExtractionError
 from app.infra.kakao import KakaoNonRetryableError
 
@@ -69,6 +71,12 @@ class ExtractionPort(Protocol):
     ) -> ExtractionResult | None: ...
 
 
+class InstagramCooldownPort(Protocol):
+    async def set_instagram_cooldown(self, seconds: int) -> None: ...
+
+    async def instagram_cooldown_ttl(self) -> int: ...
+
+
 class PlaceSearchResultPort(Protocol):
     places: list[PlaceCandidate]
 
@@ -89,11 +97,13 @@ class JobProcessor:
         settings: Settings,
         extraction_client: ExtractionPort | None = None,
         place_search_client: PlaceSearchPort | None = None,
+        cooldown_store: InstagramCooldownPort | None = None,
     ) -> None:
         self._repository = repository
         self._settings = settings
         self._extraction_client = extraction_client
         self._place_search_client = place_search_client
+        self._cooldown_store = cooldown_store
 
     async def process_job(self, job_id: UUID) -> JobProcessOutcome:
         started = time.monotonic()
@@ -109,7 +119,67 @@ class JobProcessor:
         logger.info("job claimed job_id=%s original_url=%s", job.job_id, job.original_url)
 
         try:
+            cooldown_seconds = await self._instagram_cooldown_ttl(job.original_url)
+            if cooldown_seconds > 0:
+                error_message = (
+                    "Instagram crawling is temporarily rate-limited. "
+                    f"Retry after {cooldown_seconds} seconds."
+                )
+                await self._mark_failed(
+                    job.job_id,
+                    error_message,
+                    error_code=INSTAGRAM_RATE_LIMITED_ERROR_CODE,
+                )
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                return JobProcessOutcome(
+                    processed=True,
+                    succeeded=False,
+                    timed_out=False,
+                    elapsed_ms=elapsed_ms,
+                    retryable=False,
+                    error_code=INSTAGRAM_RATE_LIMITED_ERROR_CODE,
+                    error_message=error_message,
+                    attempt_count=job.attempt_count,
+                    max_attempts=job.max_attempts,
+                )
+
             crawl_artifact = await crawl_and_parse(job.original_url, self._settings)
+            if self._is_instagram_rate_limited(crawl_artifact):
+                cooldown_seconds = await self._set_instagram_cooldown()
+                error_message = (
+                    "Instagram crawl returned HTTP 429. "
+                    f"Global cooldown started for {cooldown_seconds} seconds."
+                )
+                self._log_instagram_rate_limited(
+                    job=job,
+                    crawl_artifact=crawl_artifact,
+                    cooldown_seconds=cooldown_seconds,
+                )
+                await self._persist_outputs(
+                    job=job,
+                    crawl_artifact=crawl_artifact,
+                    extraction_result=None,
+                    place_candidates=[],
+                    resolved_places=[],
+                )
+                await self._mark_failed(
+                    job.job_id,
+                    error_message,
+                    error_code=INSTAGRAM_RATE_LIMITED_ERROR_CODE,
+                )
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                return JobProcessOutcome(
+                    processed=True,
+                    succeeded=False,
+                    timed_out=False,
+                    elapsed_ms=elapsed_ms,
+                    retryable=False,
+                    error_code=INSTAGRAM_RATE_LIMITED_ERROR_CODE,
+                    error_message=error_message,
+                    attempt_count=job.attempt_count,
+                    max_attempts=job.max_attempts,
+                )
+
             if self._is_empty_instagram_crawl(crawl_artifact):
                 error_code = "EMPTY_INSTAGRAM_CRAWL"
                 error_message = (
@@ -249,10 +319,66 @@ class JobProcessor:
     @staticmethod
     def _is_empty_instagram_crawl(crawl_artifact: CrawlArtifact) -> bool:
         instagram_metadata = JobProcessor._instagram_metadata(crawl_artifact)
+        raw_metadata = crawl_artifact.raw_metadata or {}
         return (
             crawl_artifact.source_type == "INSTAGRAM"
+            and raw_metadata.get("response_status") == 200
             and not (crawl_artifact.content_text or "").strip()
             and str(instagram_metadata.get("og_source") or "none").strip().lower() == "none"
+            and JobProcessor._safe_int(instagram_metadata.get("og_meta_count")) == 0
+            and JobProcessor._safe_int(raw_metadata.get("body_text_len")) == 0
+        )
+
+    @staticmethod
+    def _is_instagram_rate_limited(crawl_artifact: CrawlArtifact) -> bool:
+        return (
+            crawl_artifact.source_type == "INSTAGRAM"
+            and (crawl_artifact.raw_metadata or {}).get("response_status") == 429
+        )
+
+    async def _instagram_cooldown_ttl(self, original_url: str) -> int:
+        if not self._cooldown_store or not is_instagram_media_url(original_url):
+            return 0
+        try:
+            return max(0, int(await self._cooldown_store.instagram_cooldown_ttl()))
+        except Exception:
+            logger.warning("instagram cooldown ttl lookup failed", exc_info=True)
+            return 0
+
+    async def _set_instagram_cooldown(self) -> int:
+        cooldown_seconds = max(1, int(self._settings.instagram_rate_limit_cooldown_seconds))
+        if self._cooldown_store:
+            try:
+                await self._cooldown_store.set_instagram_cooldown(cooldown_seconds)
+            except Exception:
+                logger.warning("instagram cooldown set failed", exc_info=True)
+        return cooldown_seconds
+
+    def _log_instagram_rate_limited(
+        self,
+        *,
+        job: JobRecord,
+        crawl_artifact: CrawlArtifact,
+        cooldown_seconds: int,
+    ) -> None:
+        raw_metadata = crawl_artifact.raw_metadata or {}
+        instagram_metadata = self._instagram_metadata(crawl_artifact)
+        logger.warning(
+            (
+                "job failed due to instagram rate limit job_id=%s original_url=%s "
+                "crawl_url=%s response_status=%s response_url=%s final_url=%s "
+                "html_len=%s body_text_len=%s og_meta_count=%s cooldown_seconds=%s"
+            ),
+            job.job_id,
+            job.original_url,
+            crawl_artifact.url or crawl_url_for(job.original_url),
+            raw_metadata.get("response_status"),
+            raw_metadata.get("response_url"),
+            raw_metadata.get("final_url"),
+            raw_metadata.get("html_len"),
+            raw_metadata.get("body_text_len"),
+            instagram_metadata.get("og_meta_count"),
+            cooldown_seconds,
         )
 
     @staticmethod
@@ -262,6 +388,13 @@ class JobProcessor:
         if isinstance(instagram_metadata, dict):
             return instagram_metadata
         return raw_metadata
+
+    @staticmethod
+    def _safe_int(value: object) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
 
     async def _extract_result(
         self,

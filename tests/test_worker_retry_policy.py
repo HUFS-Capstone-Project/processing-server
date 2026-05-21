@@ -27,3 +27,10 @@ def test_reliable_queue_key_names_are_namespace_based() -> None:
     assert settings.business_hours_queue_processing_key == "queue:business-hours:processing"
     assert settings.business_hours_queue_delayed_key == "queue:business-hours:delayed"
 
+
+def test_instagram_rate_limit_cooldown_defaults() -> None:
+    settings = Settings()
+
+    assert settings.instagram_rate_limit_cooldown_seconds == 1800
+    assert settings.instagram_cooldown_key == "processing:cooldown:instagram"
+

@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     instagram_navigation_timeout: int = 12
     instagram_og_wait_timeout_ms: int = 3000
     instagram_block_resource_types: str = "image,font,media"
+    instagram_rate_limit_cooldown_seconds: int = 1800
+    instagram_cooldown_key: str = "processing:cooldown:instagram"
 
     crawler_browser_reuse_enabled: bool = True
     crawler_recover_on_browser_crash: bool = True

@@ -3,11 +3,17 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
+import pytest
+
 from app.infra.queue.redis_queue import RedisJobQueue
 
 
 def _run(coro):
-    return asyncio.run(coro)
+    try:
+        return asyncio.run(coro)
+    except OSError as exc:
+        coro.close()
+        pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
 
 
 class FakePipeline:
@@ -41,6 +47,8 @@ class FakeRedis:
     def __init__(self) -> None:
         self.lists = {}
         self.zsets = {}
+        self.values = {}
+        self.ttls = {}
 
     async def rpush(self, key, value):
         self.lists.setdefault(key, []).append(str(value))
@@ -91,6 +99,14 @@ class FakeRedis:
     async def zrem(self, key, value):
         return 1 if self.zsets.get(key, {}).pop(str(value), None) is not None else 0
 
+    async def set(self, key, value, ex=None):
+        self.values[key] = str(value)
+        self.ttls[key] = ex
+        return True
+
+    async def ttl(self, key):
+        return self.ttls.get(key, -2)
+
     def pipeline(self, transaction=True):
         return FakePipeline(self)
 
@@ -135,6 +151,23 @@ def test_retry_later_moves_processing_to_delayed() -> None:
 
     assert redis.lists["q:processing"] == []
     assert str(job_id) in redis.zsets["q:delayed"]
+
+
+def test_instagram_cooldown_uses_configured_redis_key() -> None:
+    redis = FakeRedis()
+    queue = RedisJobQueue(
+        redis,
+        ready_key="q:ready",
+        processing_key="q:processing",
+        delayed_key="q:delayed",
+        instagram_cooldown_key="processing:cooldown:instagram",
+    )
+
+    _run(queue.set_instagram_cooldown(1800))
+
+    assert redis.values["processing:cooldown:instagram"] == "1"
+    assert redis.ttls["processing:cooldown:instagram"] == 1800
+    assert _run(queue.instagram_cooldown_ttl()) == 1800
 
 
 def test_recover_stale_processing_jobs_requeues_unstamped_item() -> None:

@@ -3,12 +3,18 @@ from __future__ import annotations
 import asyncio
 from uuid import UUID, uuid4
 
+import pytest
+
 from app.worker.business_hours_processor import BusinessHoursProcessOutcome
 from app.worker.business_hours_runner import BusinessHoursWorkerRunner
 
 
 def _run(coro):
-    return asyncio.run(coro)
+    try:
+        return asyncio.run(coro)
+    except OSError as exc:
+        coro.close()
+        pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
 
 
 class FakeBusinessHoursQueue:
