@@ -89,13 +89,13 @@ class FakeExtractionClient:
         self,
         *,
         text: str,
-        source_url: str,
+        original_url: str,
         media_type: str | None,
     ) -> ExtractionResult | None:
         self.calls.append(
             {
                 "text": text,
-                "source_url": source_url,
+                "original_url": original_url,
                 "media_type": media_type,
             }
         )
@@ -107,7 +107,7 @@ class FailingExtractionClient:
         self,
         *,
         text: str,
-        source_url: str,
+        original_url: str,
         media_type: str | None,
     ) -> ExtractionResult | None:
         raise RuntimeError("endpoint unavailable")
@@ -191,7 +191,8 @@ def _new_job() -> JobRecord:
     return JobRecord(
         job_id=uuid4(),
         room_id=uuid4(),
-        source_url="https://www.instagram.com/reel/example/",
+        original_url="https://www.instagram.com/reel/example/",
+        canonical_url="https://www.instagram.com/reel/example/",
         status=JobStatus.QUEUED,
         error_message=None,
         created_at=now,
@@ -343,7 +344,7 @@ def test_processor_passes_content_text_to_extraction_client(monkeypatch) -> None
     assert extractor.calls == [
         {
             "text": "Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
-            "source_url": job.source_url,
+            "original_url": job.original_url,
             "media_type": "reel",
         }
     ]

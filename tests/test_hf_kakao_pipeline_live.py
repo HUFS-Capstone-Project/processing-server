@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -196,7 +196,7 @@ async def _run_live_pipeline_case(
     started = perf_counter()
     extraction_result = await extractor.extract(
         text=case.caption,
-        source_url=f"https://www.instagram.com/reel/live-{case.case_id}/",
+        original_url=f"https://www.instagram.com/reel/live-{case.case_id}/",
         media_type="reel",
     )
     extraction_elapsed_ms = int((perf_counter() - started) * 1000)

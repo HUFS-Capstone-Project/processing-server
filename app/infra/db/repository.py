@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
 import asyncpg  # type: ignore[import-untyped]
@@ -15,6 +14,7 @@ from app.domain.job.model import (
     JobStatus,
     LinkStatsRecord,
 )
+from app.domain.url_contract import canonical_url_for as build_canonical_url
 
 
 class JobRepository:
@@ -43,16 +43,16 @@ class JobRepository:
         *,
         job_id: UUID,
         room_id: UUID,
-        source_url: str,
+        original_url: str,
     ) -> JobRecord:
-        normalized_source_url = self.normalize_source_url(source_url)
+        canonical_url = self.canonical_url_for(original_url)
         existing = await self._pool.fetchrow(
             f"""
             SELECT j.*
             FROM {self._jobs_table} j
             LEFT JOIN {self._results_table} r ON r.job_id = j.job_id
             WHERE j.room_id = $1
-              AND COALESCE(j.normalized_source_url, j.source_url) = $2
+              AND j.canonical_url = $2
               AND (
                     j.status IN ('QUEUED', 'PROCESSING')
                     OR (j.status = 'SUCCEEDED' AND r.job_id IS NOT NULL)
@@ -61,7 +61,7 @@ class JobRepository:
             LIMIT 1
             """,
             room_id,
-            normalized_source_url,
+            canonical_url,
         )
         if existing:
             return self._to_job_record(existing)
@@ -69,15 +69,15 @@ class JobRepository:
         row = await self._pool.fetchrow(
             f"""
             INSERT INTO {self._jobs_table}
-                (job_id, room_id, source_url, normalized_source_url, status)
+                (job_id, room_id, original_url, canonical_url, status)
             VALUES
                 ($1, $2, $3, $4, 'QUEUED')
             RETURNING *
             """,
             job_id,
             room_id,
-            source_url,
-            normalized_source_url,
+            original_url,
+            canonical_url,
         )
         if row is None:
             raise RuntimeError("Failed to create job")
@@ -297,7 +297,7 @@ class JobRepository:
         self,
         *,
         job_id: UUID,
-        source_url: str,
+        crawl_url: str,
         source_type: str,
         content_text: str,
         extraction_method: str | None = None,
@@ -308,7 +308,7 @@ class JobRepository:
             INSERT INTO {self._crawled_contents_table}
                 (
                     job_id,
-                    source_url,
+                    crawl_url,
                     source_type,
                     content_text,
                     extraction_method,
@@ -318,7 +318,7 @@ class JobRepository:
                 ($1, $2, $3, $4, $5, $6::jsonb)
             ON CONFLICT (job_id)
             DO UPDATE SET
-                source_url = EXCLUDED.source_url,
+                crawl_url = EXCLUDED.crawl_url,
                 source_type = EXCLUDED.source_type,
                 content_text = EXCLUDED.content_text,
                 extraction_method = EXCLUDED.extraction_method,
@@ -327,7 +327,7 @@ class JobRepository:
             RETURNING *
             """,
             job_id,
-            source_url,
+            crawl_url,
             source_type,
             content_text,
             extraction_method,
@@ -341,7 +341,7 @@ class JobRepository:
         self,
         *,
         job_id: UUID,
-        source_url: str,
+        crawl_url: str,
         source_type: str,
         like_count: int | None = None,
         comment_count: int | None = None,
@@ -357,7 +357,7 @@ class JobRepository:
             INSERT INTO {self._link_stats_table}
                 (
                     job_id,
-                    source_url,
+                    crawl_url,
                     source_type,
                     like_count,
                     comment_count,
@@ -372,7 +372,7 @@ class JobRepository:
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
             ON CONFLICT (job_id)
             DO UPDATE SET
-                source_url = EXCLUDED.source_url,
+                crawl_url = EXCLUDED.crawl_url,
                 source_type = EXCLUDED.source_type,
                 like_count = EXCLUDED.like_count,
                 comment_count = EXCLUDED.comment_count,
@@ -386,7 +386,7 @@ class JobRepository:
             RETURNING *
             """,
             job_id,
-            source_url,
+            crawl_url,
             source_type,
             like_count,
             comment_count,
@@ -405,7 +405,8 @@ class JobRepository:
         return JobRecord(
             job_id=row["job_id"],
             room_id=row["room_id"],
-            source_url=row["source_url"],
+            original_url=row["original_url"],
+            canonical_url=row["canonical_url"],
             status=JobStatus(row["status"]),
             error_message=self._row_get(row, "error_message"),
             created_at=row["created_at"],
@@ -418,7 +419,6 @@ class JobRepository:
             last_heartbeat_at=self._row_get(row, "last_heartbeat_at"),
             failed_at=self._row_get(row, "failed_at"),
             completed_at=self._row_get(row, "completed_at"),
-            normalized_source_url=self._row_get(row, "normalized_source_url"),
         )
 
     def _to_job_result_record(self, row: asyncpg.Record) -> JobResultRecord:
@@ -434,7 +434,7 @@ class JobRepository:
     def _to_crawled_content_record(self, row: asyncpg.Record) -> CrawledContentRecord:
         return CrawledContentRecord(
             job_id=row["job_id"],
-            source_url=row["source_url"],
+            crawl_url=row["crawl_url"],
             source_type=row["source_type"],
             content_text=row["content_text"],
             extraction_method=self._row_get(row, "extraction_method"),
@@ -446,7 +446,7 @@ class JobRepository:
     def _to_link_stats_record(self, row: asyncpg.Record) -> LinkStatsRecord:
         return LinkStatsRecord(
             job_id=row["job_id"],
-            source_url=row["source_url"],
+            crawl_url=row["crawl_url"],
             source_type=row["source_type"],
             like_count=self._optional_int(self._row_get(row, "like_count")),
             comment_count=self._optional_int(self._row_get(row, "comment_count")),
@@ -461,11 +461,8 @@ class JobRepository:
         )
 
     @staticmethod
-    def normalize_source_url(source_url: str) -> str:
-        parsed = urlsplit((source_url or "").strip())
-        query = urlencode(sorted(parse_qsl(parsed.query, keep_blank_values=True)))
-        path = parsed.path.rstrip("/") or "/"
-        return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, query, ""))
+    def canonical_url_for(original_url: str) -> str:
+        return build_canonical_url(original_url)
 
     @staticmethod
     def _row_get(row: Any, key: str, fallback_key: str | None = None, default: Any = None) -> Any:

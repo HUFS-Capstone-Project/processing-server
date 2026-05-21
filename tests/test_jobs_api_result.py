@@ -20,6 +20,21 @@ class FakeJobService:
     def __init__(self, job: JobRecord) -> None:
         self.job = job
 
+    async def create_job(self, command) -> JobRecord:
+        now = datetime.now(timezone.utc)
+        canonical_url = "https://www.instagram.com/reel/DVDm96wjwWC/"
+        self.job = JobRecord(
+            job_id=uuid4(),
+            room_id=command.room_id,
+            original_url=command.original_url,
+            canonical_url=canonical_url,
+            status=JobStatus.QUEUED,
+            error_message=None,
+            created_at=now,
+            updated_at=now,
+        )
+        return self.job
+
     async def get_job(self, job_id: UUID) -> JobRecord | None:
         return self.job if job_id == self.job.job_id else None
 
@@ -62,6 +77,42 @@ def _headers() -> dict[str, str]:
     return {"X-Internal-Api-Key": "test-internal-key"}
 
 
+def test_create_job_preserves_submitted_url_as_original_url() -> None:
+    now = datetime.now(timezone.utc)
+    initial_job = JobRecord(
+        job_id=uuid4(),
+        room_id=uuid4(),
+        original_url="https://example.com/initial",
+        canonical_url="https://example.com/initial",
+        status=JobStatus.QUEUED,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    result = JobResultRecord(
+        job_id=initial_job.job_id,
+        extraction_result=None,
+        place_candidates=[],
+        resolved_places=[],
+        created_at=now,
+        updated_at=now,
+    )
+    client = _client(initial_job, result)
+    room_id = uuid4()
+    original_url = "https://www.instagram.com/reels/DVDm96wjwWC/?igsh=abc"
+
+    response = client.post(
+        "/jobs",
+        headers=_headers(),
+        json={"original_url": original_url, "room_id": str(room_id)},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["original_url"] == original_url
+    assert payload["canonical_url"] == "https://www.instagram.com/reel/DVDm96wjwWC/"
+
+
 def test_get_job_result_returns_public_contract_only() -> None:
     now = datetime.now(timezone.utc)
     job_id = uuid4()
@@ -91,7 +142,8 @@ def test_get_job_result_returns_public_contract_only() -> None:
     job = JobRecord(
         job_id=job_id,
         room_id=uuid4(),
-        source_url="https://www.instagram.com/reel/example/",
+        original_url="https://www.instagram.com/reel/example/",
+        canonical_url="https://www.instagram.com/reel/example/",
         status=JobStatus.SUCCEEDED,
         error_message=None,
         created_at=now,
@@ -107,7 +159,7 @@ def test_get_job_result_returns_public_contract_only() -> None:
     )
     content = CrawledContentRecord(
         job_id=job_id,
-        source_url=job.source_url,
+        crawl_url=job.canonical_url,
         source_type="INSTAGRAM",
         content_text="Common Mansion review",
         extraction_method="INSTAGRAM_OG_META",
@@ -120,7 +172,7 @@ def test_get_job_result_returns_public_contract_only() -> None:
     )
     link_stats = LinkStatsRecord(
         job_id=job_id,
-        source_url=job.source_url,
+        crawl_url=job.canonical_url,
         source_type="INSTAGRAM",
         like_count=123,
         comment_count=45,
@@ -141,7 +193,9 @@ def test_get_job_result_returns_public_contract_only() -> None:
     assert payload == {
         "job_id": str(job_id),
         "status": "SUCCEEDED",
-        "source_url": "https://www.instagram.com/reel/example/",
+        "original_url": "https://www.instagram.com/reel/example/",
+        "canonical_url": "https://www.instagram.com/reel/example/",
+        "crawl_url": "https://www.instagram.com/reel/example/",
         "content": {
             "source_type": "INSTAGRAM",
             "content_text": "Common Mansion review",
@@ -187,7 +241,8 @@ def test_get_job_debug_result_returns_internal_fields() -> None:
     job = JobRecord(
         job_id=job_id,
         room_id=uuid4(),
-        source_url="https://example.com/post",
+        original_url="https://example.com/post",
+        canonical_url="https://example.com/post",
         status=JobStatus.FAILED,
         error_message="failed",
         created_at=now,
@@ -206,7 +261,7 @@ def test_get_job_debug_result_returns_internal_fields() -> None:
     )
     content = CrawledContentRecord(
         job_id=job_id,
-        source_url=job.source_url,
+        crawl_url=job.original_url,
         source_type="GENERIC_WEB",
         content_text="debug body",
         extraction_method="GENERIC_WEB_INNER_TEXT",
@@ -221,6 +276,8 @@ def test_get_job_debug_result_returns_internal_fields() -> None:
     payload = response.json()
     assert payload["attempt_count"] == 2
     assert payload["error_code"] == "RETRYABLE_TIMEOUT"
+    assert payload["canonical_url"] == "https://example.com/post"
+    assert payload["crawl_url"] == "https://example.com/post"
     assert payload["content"]["raw_metadata"] == {"raw": "meta"}
     assert payload["extraction_result"] == {"raw": "extraction"}
     assert payload["place_candidates"] == [{"query": "candidate", "confidence": 0.5}]

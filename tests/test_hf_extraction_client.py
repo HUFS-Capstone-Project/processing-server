@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import json
@@ -78,7 +78,7 @@ def test_hf_extraction_client_returns_domain_result() -> None:
     result = _run(
         extractor.extract(
             text="Common Mansion 1-102 Sinmunro 2-ga, Jongno-gu, Seoul",
-            source_url="https://www.instagram.com/reel/example/",
+            original_url="https://www.instagram.com/reel/example/",
             media_type="reel",
         )
     )
@@ -116,7 +116,7 @@ def test_hf_extraction_client_retries_transient_http_failure() -> None:
     result = _run(
         extractor.extract(
             text="Common Mansion",
-            source_url="https://www.instagram.com/reel/example/",
+            original_url="https://www.instagram.com/reel/example/",
             media_type="reel",
         )
     )
@@ -178,7 +178,7 @@ def test_hf_extraction_client_accepts_long_realistic_caption() -> None:
     result = _run(
         extractor.extract(
             text=long_caption,
-            source_url="https://www.instagram.com/reel/example/",
+            original_url="https://www.instagram.com/reel/example/",
             media_type="reel",
         )
     )
@@ -228,7 +228,7 @@ def test_hf_extraction_client_returns_multiple_domain_places() -> None:
     result = _run(
         extractor.extract(
             text="#플루밍\n서울 마포구 연남로13길 9 1층 101호\n❷ 누크녹",
-            source_url="https://www.instagram.com/reel/example/",
+            original_url="https://www.instagram.com/reel/example/",
             media_type="reel",
         )
     )
@@ -267,7 +267,7 @@ def test_hf_extraction_client_raises_on_http_error() -> None:
         _run(
             extractor.extract(
                 text="Common Mansion",
-                source_url="https://example.com/post",
+                original_url="https://example.com/post",
                 media_type=None,
             )
         )
@@ -292,7 +292,7 @@ def test_hf_extraction_client_does_not_retry_non_transient_http_errors(status_co
         _run(
             extractor.extract(
                 text="Common Mansion",
-                source_url="https://example.com/post",
+                original_url="https://example.com/post",
                 media_type=None,
             )
         )
@@ -315,7 +315,7 @@ def test_hf_extraction_client_raises_on_invalid_schema() -> None:
         _run(
             extractor.extract(
                 text="Common Mansion",
-                source_url="https://example.com/post",
+                original_url="https://example.com/post",
                 media_type=None,
             )
         )
@@ -333,7 +333,7 @@ def test_hf_extraction_client_raises_when_endpoint_is_missing() -> None:
         _run(
             extractor.extract(
                 text="Common Mansion",
-                source_url="https://example.com/post",
+                original_url="https://example.com/post",
                 media_type=None,
             )
         )

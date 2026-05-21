@@ -147,3 +147,19 @@ def test_get_job_result_maps_extraction_result() -> None:
     assert record.extraction_result == extraction_result
     assert record.place_candidates == []
     assert record.resolved_places == []
+
+
+def test_canonical_url_for_canonicalizes_instagram_reels_for_dedupe() -> None:
+    assert (
+        JobRepository.canonical_url_for(
+            "https://www.instagram.com/reels/DVDm96wjwWC/?utm_source=ig_web_copy_link"
+        )
+        == "https://www.instagram.com/reel/DVDm96wjwWC/"
+    )
+
+
+def test_canonical_url_for_keeps_existing_generic_url_behavior() -> None:
+    assert (
+        JobRepository.canonical_url_for("HTTPS://Example.com/Post/?b=2&a=1#fragment")
+        == "https://example.com/Post?a=1&b=2"
+    )

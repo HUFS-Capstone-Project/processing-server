@@ -39,6 +39,14 @@ def test_registry_selects_instagram_extractor_for_instagram_media_url() -> None:
     assert isinstance(extractor, InstagramContentExtractor)
 
 
+def test_registry_selects_instagram_extractor_for_instagram_reels_url() -> None:
+    registry = ContentExtractorRegistry(Settings())
+
+    extractor = registry.select("https://www.instagram.com/reels/abc/")
+
+    assert isinstance(extractor, InstagramContentExtractor)
+
+
 def test_registry_selects_generic_extractor_for_generic_url() -> None:
     registry = ContentExtractorRegistry(Settings())
 

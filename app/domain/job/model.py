@@ -43,7 +43,8 @@ class ExtractionResult:
 class JobRecord:
     job_id: UUID
     room_id: UUID
-    source_url: str
+    original_url: str
+    canonical_url: str
     status: JobStatus
     error_message: str | None
     created_at: datetime
@@ -56,7 +57,6 @@ class JobRecord:
     last_heartbeat_at: datetime | None = None
     failed_at: datetime | None = None
     completed_at: datetime | None = None
-    normalized_source_url: str | None = None
 
 
 @dataclass(slots=True)
@@ -72,7 +72,7 @@ class JobResultRecord:
 @dataclass(slots=True)
 class CrawledContentRecord:
     job_id: UUID
-    source_url: str
+    crawl_url: str
     source_type: str
     content_text: str
     extraction_method: str | None
@@ -84,7 +84,7 @@ class CrawledContentRecord:
 @dataclass(slots=True)
 class LinkStatsRecord:
     job_id: UUID
-    source_url: str
+    crawl_url: str
     source_type: str
     like_count: int | None
     comment_count: int | None

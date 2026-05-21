@@ -112,7 +112,7 @@ class HFExtractionClient:
         self,
         *,
         text: str,
-        source_url: str,
+        original_url: str,
         media_type: str | None,
     ) -> ExtractionResult | None:
         if not text.strip():
@@ -124,7 +124,7 @@ class HFExtractionClient:
 
         payload = self._build_payload(
             text=text,
-            source_url=source_url,
+            original_url=original_url,
             media_type=media_type,
         )
         headers = {
@@ -193,10 +193,10 @@ class HFExtractionClient:
         self,
         *,
         text: str,
-        source_url: str,
+        original_url: str,
         media_type: str | None,
     ) -> dict[str, Any]:
-        _ = source_url, media_type
+        _ = original_url, media_type
         return {
             "model": self._settings.hf_extraction_model_name,
             "messages": [

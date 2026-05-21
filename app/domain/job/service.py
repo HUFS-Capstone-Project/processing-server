@@ -14,7 +14,7 @@ class JobRepositoryPort(Protocol):
         *,
         job_id: UUID,
         room_id: UUID,
-        source_url: str,
+        original_url: str,
     ) -> JobRecord: ...
 
     async def get_job(self, job_id: UUID) -> JobRecord | None: ...
@@ -30,7 +30,7 @@ class JobQueuePort(Protocol):
 
 @dataclass(slots=True)
 class CreateJobCommand:
-    url: str
+    original_url: str
     room_id: UUID
 
 
@@ -48,12 +48,12 @@ class JobService:
         self._queue = queue
 
     async def create_job(self, command: CreateJobCommand) -> JobRecord:
-        normalized_url = self._validate_url(command.url)
+        original_url = self._validate_url(command.original_url)
         job_id = uuid4()
         job = await self._repository.create_job(
             job_id=job_id,
             room_id=command.room_id,
-            source_url=normalized_url,
+            original_url=original_url,
         )
         if job.job_id != job_id:
             return job

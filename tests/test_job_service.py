@@ -50,13 +50,14 @@ class FakeRepository:
         *,
         job_id: UUID,
         room_id: UUID,
-        source_url: str,
+        original_url: str,
     ) -> JobRecord:
         now = datetime.now(timezone.utc)
         job = JobRecord(
             job_id=job_id,
             room_id=room_id,
-            source_url=source_url,
+            original_url=original_url,
+            canonical_url=original_url,
             status=JobStatus.QUEUED,
             error_message=None,
             created_at=now,
@@ -76,7 +77,8 @@ class FakeRepository:
         self._jobs_by_id[job_id] = JobRecord(
             job_id=job.job_id,
             room_id=job.room_id,
-            source_url=job.source_url,
+            original_url=job.original_url,
+            canonical_url=job.canonical_url,
             status=JobStatus.FAILED,
             error_message=error_message,
             created_at=job.created_at,
@@ -91,7 +93,7 @@ def test_create_job_enqueues_once() -> None:
     service = JobService(repo, queue)
 
     command = CreateJobCommand(
-        url="https://www.instagram.com/reel/abcde/",
+        original_url="https://www.instagram.com/reel/abcde/",
         room_id=uuid4(),
     )
 
@@ -109,13 +111,13 @@ def test_create_job_reuses_duplicate_without_enqueueing_again() -> None:
     service = JobService(repo, queue)
     room_id = uuid4()
     command = CreateJobCommand(
-        url="https://www.instagram.com/reel/abcde/",
+        original_url="https://www.instagram.com/reel/abcde/",
         room_id=room_id,
     )
 
     first = _run(service.create_job(command))
 
-    async def create_existing_job(*, job_id, room_id, source_url):
+    async def create_existing_job(*, job_id, room_id, original_url):
         return first
 
     repo.create_job = create_existing_job
@@ -132,4 +134,8 @@ def test_create_job_rejects_invalid_url() -> None:
     service = JobService(repo, queue)
 
     with pytest.raises(InvalidJobRequest):
-        _run(service.create_job(CreateJobCommand(url="ftp://invalid.example.com", room_id=uuid4())))
+        _run(
+            service.create_job(
+                CreateJobCommand(original_url="ftp://invalid.example.com", room_id=uuid4())
+            )
+        )

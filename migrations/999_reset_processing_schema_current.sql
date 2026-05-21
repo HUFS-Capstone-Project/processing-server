@@ -9,8 +9,8 @@ CREATE SCHEMA IF NOT EXISTS processing;
 CREATE TABLE processing.jobs (
     job_id UUID PRIMARY KEY,
     room_id UUID NOT NULL,
-    source_url TEXT NOT NULL,
-    normalized_source_url TEXT,
+    original_url TEXT NOT NULL,
+    canonical_url TEXT NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'QUEUED',
     attempt_count INTEGER NOT NULL DEFAULT 0,
     max_attempts INTEGER NOT NULL DEFAULT 3,
@@ -32,8 +32,8 @@ CREATE TABLE processing.jobs (
 CREATE INDEX idx_processing_jobs_status_created_at
     ON processing.jobs (status, created_at DESC);
 
-CREATE INDEX idx_processing_jobs_room_normalized_url_status
-    ON processing.jobs (room_id, COALESCE(normalized_source_url, source_url), status);
+CREATE INDEX idx_processing_jobs_room_canonical_url_status
+    ON processing.jobs (room_id, canonical_url, status);
 
 CREATE TABLE processing.job_results (
     job_id UUID PRIMARY KEY REFERENCES processing.jobs(job_id) ON DELETE CASCADE,
@@ -52,7 +52,7 @@ CREATE TABLE processing.job_results (
 
 CREATE TABLE processing.crawled_contents (
     job_id UUID PRIMARY KEY REFERENCES processing.jobs(job_id) ON DELETE CASCADE,
-    source_url TEXT NOT NULL,
+    crawl_url TEXT NOT NULL,
     source_type TEXT NOT NULL,
     content_text TEXT NOT NULL DEFAULT '',
     extraction_method TEXT,
@@ -70,7 +70,7 @@ CREATE INDEX idx_processing_crawled_contents_source_type_created_at
 
 CREATE TABLE processing.link_stats (
     job_id UUID PRIMARY KEY REFERENCES processing.jobs(job_id) ON DELETE CASCADE,
-    source_url TEXT NOT NULL,
+    crawl_url TEXT NOT NULL,
     source_type TEXT NOT NULL,
     like_count BIGINT,
     comment_count BIGINT,

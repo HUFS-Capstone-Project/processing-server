@@ -26,10 +26,13 @@ class FakeInstagramExtractor:
 
 
 class FakeContentExtractorRegistry:
+    calls: list[str] = []
+
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
     async def extract(self, url: str):
+        self.__class__.calls.append(url)
         content_text = (
             '2,301 likes, 6 comments - bbang.morning - April 18, 2026: '
             '"Mango dessert cafe"'
@@ -43,6 +46,7 @@ class FakeContentExtractorRegistry:
 
 
 def test_instagram_crawl_artifact_uses_caption_only_content_text(monkeypatch) -> None:
+    FakeContentExtractorRegistry.calls = []
     monkeypatch.setattr(
         "app.domain.crawl.analyzer.ContentExtractorRegistry",
         FakeContentExtractorRegistry,
@@ -56,3 +60,17 @@ def test_instagram_crawl_artifact_uses_caption_only_content_text(monkeypatch) ->
     assert artifact.link_stats.like_count == 2301
     assert artifact.link_stats.comment_count == 6
     assert artifact.link_stats.posted_at == "April 18, 2026"
+
+
+def test_instagram_reels_crawl_uses_canonical_reel_url(monkeypatch) -> None:
+    FakeContentExtractorRegistry.calls = []
+    monkeypatch.setattr(
+        "app.domain.crawl.analyzer.ContentExtractorRegistry",
+        FakeContentExtractorRegistry,
+    )
+
+    artifact = _run(crawl_and_parse("https://www.instagram.com/reels/example/?igsh=abc", Settings()))
+
+    assert FakeContentExtractorRegistry.calls == ["https://www.instagram.com/reel/example/"]
+    assert artifact.url == "https://www.instagram.com/reel/example/"
+    assert artifact.media_type == "reel"

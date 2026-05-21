@@ -64,7 +64,7 @@ class ExtractionPort(Protocol):
         self,
         *,
         text: str,
-        source_url: str,
+        original_url: str,
         media_type: str | None,
     ) -> ExtractionResult | None: ...
 
@@ -106,10 +106,10 @@ class JobProcessor:
                 timed_out=False,
                 elapsed_ms=int((time.monotonic() - started) * 1000),
             )
-        logger.info("job claimed job_id=%s source_url=%s", job.job_id, job.source_url)
+        logger.info("job claimed job_id=%s original_url=%s", job.job_id, job.original_url)
 
         try:
-            crawl_artifact = await crawl_and_parse(job.source_url, self._settings)
+            crawl_artifact = await crawl_and_parse(job.original_url, self._settings)
             if self._is_empty_instagram_crawl(crawl_artifact):
                 error_code = "EMPTY_INSTAGRAM_CRAWL"
                 error_message = (
@@ -118,12 +118,12 @@ class JobProcessor:
                 )
                 logger.warning(
                     (
-                        "job failed due to empty instagram crawl job_id=%s source_url=%s "
+                        "job failed due to empty instagram crawl job_id=%s original_url=%s "
                         "og_source=%s response_status=%s html_len=%s body_text_len=%s "
                         "og_meta_count=%s login_form_present=%s challenge_marker_present=%s"
                     ),
                     job.job_id,
-                    job.source_url,
+                    job.original_url,
                     self._instagram_metadata(crawl_artifact).get("og_source"),
                     (crawl_artifact.raw_metadata or {}).get("response_status"),
                     (crawl_artifact.raw_metadata or {}).get("html_len"),
@@ -153,7 +153,7 @@ class JobProcessor:
                     max_attempts=job.max_attempts,
                 )
 
-            extraction_result = await self._extract_result(job.source_url, crawl_artifact)
+            extraction_result = await self._extract_result(job.original_url, crawl_artifact)
             place_candidates, resolved_places = await self._enrich_place(
                 extraction_result,
                 crawl_artifact,
@@ -214,7 +214,7 @@ class JobProcessor:
     ) -> None:
         await self._repository.upsert_crawled_content(
             job_id=job.job_id,
-            source_url=crawl_artifact.url,
+            crawl_url=crawl_artifact.url,
             source_type=crawl_artifact.source_type or "GENERIC_WEB",
             content_text=crawl_artifact.content_text,
             extraction_method=crawl_artifact.extraction_method,
@@ -265,7 +265,7 @@ class JobProcessor:
 
     async def _extract_result(
         self,
-        source_url: str,
+        original_url: str,
         crawl_artifact: CrawlArtifact,
     ) -> ExtractionResult | None:
         if not self._extraction_client or not crawl_artifact.content_text:
@@ -274,11 +274,11 @@ class JobProcessor:
         try:
             return await self._extraction_client.extract(
                 text=crawl_artifact.content_text,
-                source_url=source_url,
+                original_url=original_url,
                 media_type=crawl_artifact.media_type,
             )
         except Exception:
-            logger.exception("extraction failed source_url=%s", source_url)
+            logger.exception("extraction failed original_url=%s", original_url)
             if self._settings.extraction_failure_retry_enabled:
                 raise
             return None
@@ -499,7 +499,7 @@ class JobProcessor:
         confidence = getattr(link_stats, "confidence", None)
         source_type = getattr(link_stats, "source_type", None)
         return {
-            "source_url": getattr(link_stats, "source_url"),
+            "crawl_url": getattr(link_stats, "source_url"),
             "source_type": getattr(source_type, "value", source_type),
             "like_count": getattr(link_stats, "like_count", None),
             "comment_count": getattr(link_stats, "comment_count", None),

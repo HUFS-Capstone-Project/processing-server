@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
 from app.domain.job.model import JobStatus
 
@@ -23,21 +23,33 @@ class ResolvedPlaceResponse(BaseModel):
 
 
 class CreateJobRequest(BaseModel):
-    url: HttpUrl = Field(..., examples=["https://www.instagram.com/reel/abcde/"])
+    original_url: str = Field(
+        ...,
+        examples=["https://www.instagram.com/reel/abcde/"],
+        json_schema_extra={"format": "uri"},
+    )
     room_id: UUID
 
 
 class CreateJobResponse(BaseModel):
     job_id: UUID
     status: JobStatus
-    source_url: str
+    original_url: str = Field(..., description="Original URL submitted by the client.")
+    canonical_url: str = Field(
+        ...,
+        description="Canonical URL used for duplicate detection and link identity.",
+    )
     created_at: datetime
 
 
 class JobStatusResponse(BaseModel):
     job_id: UUID
     room_id: UUID
-    source_url: str
+    original_url: str = Field(..., description="Original URL submitted by the client.")
+    canonical_url: str = Field(
+        ...,
+        description="Canonical URL used for duplicate detection and link identity.",
+    )
     status: JobStatus
     error_message: str | None
     created_at: datetime
@@ -47,7 +59,15 @@ class JobStatusResponse(BaseModel):
 class JobResultResponse(BaseModel):
     job_id: UUID
     status: JobStatus
-    source_url: str
+    original_url: str = Field(..., description="Original URL submitted by the client.")
+    canonical_url: str = Field(
+        ...,
+        description="Canonical URL used for duplicate detection and link identity.",
+    )
+    crawl_url: str = Field(
+        ...,
+        description="URL used by the crawler after source-specific canonicalization.",
+    )
     content: CrawledContentResponse | None = None
     link_stats: LinkStatsResponse | None = None
     resolved_places: list[ResolvedPlaceResponse] = Field(default_factory=list)
@@ -76,8 +96,9 @@ class LinkStatsResponse(BaseModel):
 class JobDebugResultResponse(BaseModel):
     job_id: UUID
     room_id: UUID
-    source_url: str
-    normalized_source_url: str | None = None
+    original_url: str
+    canonical_url: str
+    crawl_url: str
     status: JobStatus
     attempt_count: int
     max_attempts: int

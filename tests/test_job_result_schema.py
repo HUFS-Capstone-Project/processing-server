@@ -10,7 +10,9 @@ def test_job_result_response_exposes_only_public_fields() -> None:
     response = JobResultResponse(
         job_id=uuid4(),
         status=JobStatus.SUCCEEDED,
-        source_url="https://example.com/post",
+        original_url="https://example.com/post",
+        canonical_url="https://example.com/post",
+        crawl_url="https://example.com/post",
         content={
             "source_type": "GENERIC_WEB",
             "content_text": "caption",

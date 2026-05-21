@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.security import require_internal_api_key
 from app.domain.job import CreateJobCommand, InvalidJobRequest, JobService, JobStatus
+from app.domain.url_contract import crawl_url_for
 from app.infra.db.repository import JobRepository
 from app.schemas.jobs import (
     ApiErrorResponse,
@@ -46,7 +47,7 @@ async def create_job(
     try:
         job = await service.create_job(
             CreateJobCommand(
-                url=str(payload.url),
+                original_url=payload.original_url,
                 room_id=payload.room_id,
             )
         )
@@ -59,7 +60,8 @@ async def create_job(
     return CreateJobResponse(
         job_id=job.job_id,
         status=job.status,
-        source_url=job.source_url,
+        original_url=job.original_url,
+        canonical_url=job.canonical_url,
         created_at=job.created_at,
     )
 
@@ -84,7 +86,8 @@ async def get_job_status(
     return JobStatusResponse(
         job_id=job.job_id,
         room_id=job.room_id,
-        source_url=job.source_url,
+        original_url=job.original_url,
+        canonical_url=job.canonical_url,
         status=job.status,
         error_message=job.error_message,
         created_at=job.created_at,
@@ -123,7 +126,9 @@ async def get_job_result(
     return JobResultResponse(
         job_id=job.job_id,
         status=job.status,
-        source_url=job.source_url,
+        original_url=job.original_url,
+        canonical_url=job.canonical_url,
+        crawl_url=_crawl_url(job, content),
         content=_content_response(content),
         link_stats=_link_stats_response(link_stats),
         resolved_places=[
@@ -158,8 +163,9 @@ async def get_job_debug_result(
     return JobDebugResultResponse(
         job_id=job.job_id,
         room_id=job.room_id,
-        source_url=job.source_url,
-        normalized_source_url=job.normalized_source_url,
+        original_url=job.original_url,
+        canonical_url=job.canonical_url,
+        crawl_url=_crawl_url(job, content),
         status=job.status,
         attempt_count=job.attempt_count,
         max_attempts=job.max_attempts,
@@ -190,6 +196,12 @@ def _content_response(content) -> CrawledContentResponse | None:
     )
 
 
+def _crawl_url(job, content) -> str:
+    if content is not None:
+        return content.crawl_url
+    return crawl_url_for(job.original_url)
+
+
 def _link_stats_response(link_stats) -> LinkStatsResponse | None:
     if link_stats is None:
         return None
@@ -204,7 +216,7 @@ def _content_debug_dict(content) -> dict[str, object] | None:
     if content is None:
         return None
     return {
-        "source_url": content.source_url,
+        "crawl_url": content.crawl_url,
         "source_type": content.source_type,
         "content_text": content.content_text,
         "extraction_method": content.extraction_method,
@@ -216,7 +228,7 @@ def _link_stats_debug_dict(link_stats) -> dict[str, object] | None:
     if link_stats is None:
         return None
     return {
-        "source_url": link_stats.source_url,
+        "crawl_url": link_stats.crawl_url,
         "source_type": link_stats.source_type,
         "like_count": link_stats.like_count,
         "comment_count": link_stats.comment_count,
