@@ -51,6 +51,15 @@ class JobStatusResponse(BaseModel):
         description="Canonical URL used for duplicate detection and link identity.",
     )
     status: JobStatus
+    error_code: str | None = Field(
+        default=None,
+        description=(
+            "Machine-readable failure code when status=FAILED. Known values include "
+            "INSTAGRAM_RATE_LIMITED, EMPTY_INSTAGRAM_CRAWL, RETRYABLE_TIMEOUT, "
+            "UNSUPPORTED_PLATFORM_URL."
+        ),
+        examples=["UNSUPPORTED_PLATFORM_URL"],
+    )
     error_message: str | None
     created_at: datetime
     updated_at: datetime

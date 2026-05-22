@@ -303,6 +303,41 @@ def test_get_job_debug_result_returns_internal_fields() -> None:
     assert payload["place_candidates"] == [{"query": "candidate", "confidence": 0.5}]
 
 
+def test_get_job_status_returns_error_code_for_failed_job() -> None:
+    now = datetime.now(timezone.utc)
+    job_id = uuid4()
+    job = JobRecord(
+        job_id=job_id,
+        room_id=uuid4(),
+        original_url="https://www.youtube.com/@some-channel",
+        canonical_url="https://www.youtube.com/@some-channel",
+        status=JobStatus.FAILED,
+        error_message="UnsupportedPlatformUrlError: Unsupported or malformed youtube URL",
+        created_at=now,
+        updated_at=now,
+        error_code="UNSUPPORTED_PLATFORM_URL",
+    )
+    result = JobResultRecord(
+        job_id=job_id,
+        extraction_result=None,
+        place_candidates=[],
+        resolved_places=[],
+        created_at=now,
+        updated_at=now,
+    )
+
+    response = _client(job, result).get(f"/jobs/{job_id}", headers=_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "FAILED"
+    assert payload["error_code"] == "UNSUPPORTED_PLATFORM_URL"
+    assert payload["error_message"] == (
+        "UnsupportedPlatformUrlError: Unsupported or malformed youtube URL"
+    )
+    assert "retryable" not in payload
+
+
 def test_get_job_result_marks_instagram_rate_limit_as_client_retryable() -> None:
     now = datetime.now(timezone.utc)
     job_id = uuid4()

@@ -51,6 +51,14 @@ def test_openapi_job_result_documents_retryable_field() -> None:
     assert "UNSUPPORTED_PLATFORM_URL" in schema["properties"]["error_code"]["description"]
 
 
+def test_openapi_job_status_documents_error_code_field() -> None:
+    schema = _schema("JobStatusResponse")
+
+    assert "error_code" in schema["properties"]
+    assert "UNSUPPORTED_PLATFORM_URL" in schema["properties"]["error_code"]["description"]
+    assert "retryable" not in schema["properties"]
+
+
 def test_openapi_get_job_result_documents_conflict_and_not_found() -> None:
     responses = _get_responses("/api/v1/jobs/{jobId}/result")
 

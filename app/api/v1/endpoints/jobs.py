@@ -139,6 +139,7 @@ async def get_job_status(
         original_url=job.original_url,
         canonical_url=job.canonical_url,
         status=job.status,
+        error_code=job.error_code,
         error_message=job.error_message,
         created_at=job.created_at,
         updated_at=job.updated_at,
