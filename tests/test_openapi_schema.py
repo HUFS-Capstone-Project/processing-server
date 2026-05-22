@@ -48,6 +48,7 @@ def test_openapi_job_result_documents_retryable_field() -> None:
     assert "retryable" in schema["properties"]
     assert schema["properties"]["retryable"]["default"] is False
     assert "INSTAGRAM_RATE_LIMITED" in schema["properties"]["error_code"]["description"]
+    assert "UNSUPPORTED_PLATFORM_URL" in schema["properties"]["error_code"]["description"]
 
 
 def test_openapi_get_job_result_documents_conflict_and_not_found() -> None:

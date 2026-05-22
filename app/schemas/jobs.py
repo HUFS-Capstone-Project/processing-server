@@ -75,7 +75,8 @@ class JobResultResponse(BaseModel):
         default=None,
         description=(
             "Machine-readable failure code when status=FAILED. Known values include "
-            "INSTAGRAM_RATE_LIMITED, EMPTY_INSTAGRAM_CRAWL, RETRYABLE_TIMEOUT."
+            "INSTAGRAM_RATE_LIMITED, EMPTY_INSTAGRAM_CRAWL, RETRYABLE_TIMEOUT, "
+            "UNSUPPORTED_PLATFORM_URL."
         ),
         examples=["INSTAGRAM_RATE_LIMITED"],
     )

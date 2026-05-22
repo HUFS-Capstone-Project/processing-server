@@ -9,6 +9,10 @@ from app.services.crawler.extractors.types import ExtractedContent
 from app.services.crawler.extractors.youtube import YouTubeContentExtractor
 
 
+class UnsupportedPlatformUrlError(ValueError):
+    pass
+
+
 class ContentExtractorRegistry:
     def __init__(
         self,
@@ -30,6 +34,11 @@ class ContentExtractorRegistry:
         for extractor in self._extractors:
             if extractor.supports(url):
                 return extractor
+            recognizes_host = getattr(extractor, "recognizes_host", None)
+            if recognizes_host is not None and recognizes_host(url):
+                raise UnsupportedPlatformUrlError(
+                    f"Unsupported or malformed {extractor.name} URL"
+                )
         return self._fallback_extractor
 
     async def extract(self, url: str) -> tuple[ContentExtractor, ExtractedContent]:

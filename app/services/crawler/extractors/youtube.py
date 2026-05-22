@@ -28,6 +28,9 @@ class YouTubeContentExtractor:
         self._client = client or YouTubeDataApiClient(settings)
 
     def supports(self, url: str) -> bool:
+        return canonical_youtube_video_url(url) is not None
+
+    def recognizes_host(self, url: str) -> bool:
         return is_youtube_host(url)
 
     async def extract(self, url: str) -> ExtractedContent:

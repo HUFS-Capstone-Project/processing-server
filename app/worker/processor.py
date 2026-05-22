@@ -25,8 +25,11 @@ from app.domain.job.service import INSTAGRAM_RATE_LIMITED_ERROR_CODE
 from app.domain.url_contract import crawl_url_for, is_instagram_media_url
 from app.infra.llm import HFExtractionError
 from app.infra.kakao import KakaoNonRetryableError
+from app.services.crawler.extractors.registry import UnsupportedPlatformUrlError
 
 logger = logging.getLogger("processing.worker.processor")
+
+UNSUPPORTED_PLATFORM_URL_ERROR_CODE = "UNSUPPORTED_PLATFORM_URL"
 
 
 @dataclass(slots=True)
@@ -554,6 +557,8 @@ class JobProcessor:
 
     @staticmethod
     def _error_code(exc: Exception) -> str:
+        if isinstance(exc, UnsupportedPlatformUrlError):
+            return UNSUPPORTED_PLATFORM_URL_ERROR_CODE
         if isinstance(exc, HFExtractionError):
             return "RETRYABLE_EXTRACTION_ERROR"
         if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):

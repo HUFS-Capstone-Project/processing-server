@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.domain.url_contract import (
     canonical_instagram_media_url,
+    is_instagram_host,
     instagram_media_type,
     is_instagram_media_url,
     is_instagram_post_url,
@@ -12,6 +13,7 @@ from app.domain.url_contract import (
 
 __all__ = [
     "canonical_instagram_media_url",
+    "is_instagram_host",
     "instagram_media_type",
     "is_instagram_media_url",
     "is_instagram_post_url",

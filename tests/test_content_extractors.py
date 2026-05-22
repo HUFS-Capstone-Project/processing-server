@@ -10,6 +10,7 @@ from app.services.crawler.extractors.instagram import InstagramContentExtractor
 from app.services.crawler.extractors.link_stats_registry import LinkStatsExtractorRegistry
 from app.services.crawler.extractors.naver_blog import NaverBlogContentExtractor
 from app.services.crawler.extractors.registry import ContentExtractorRegistry
+from app.services.crawler.extractors.registry import UnsupportedPlatformUrlError
 from app.services.crawler.extractors.youtube import (
     YouTubeContentExtractor,
     build_youtube_content_text,
@@ -53,6 +54,13 @@ def test_registry_selects_instagram_extractor_for_instagram_reels_url() -> None:
     assert isinstance(extractor, InstagramContentExtractor)
 
 
+def test_registry_rejects_unsupported_instagram_host_url() -> None:
+    registry = ContentExtractorRegistry(Settings())
+
+    with pytest.raises(UnsupportedPlatformUrlError, match="instagram"):
+        registry.select("https://www.instagram.com/explore/")
+
+
 def test_registry_selects_generic_extractor_for_generic_url() -> None:
     registry = ContentExtractorRegistry(Settings())
 
@@ -69,6 +77,13 @@ def test_registry_selects_naver_blog_extractor_for_naver_blog_url() -> None:
     assert isinstance(extractor, NaverBlogContentExtractor)
 
 
+def test_registry_rejects_unsupported_naver_blog_host_url() -> None:
+    registry = ContentExtractorRegistry(Settings())
+
+    with pytest.raises(UnsupportedPlatformUrlError, match="naver_blog"):
+        registry.select("https://blog.naver.com/example")
+
+
 def test_registry_selects_youtube_extractor_for_youtube_video_url() -> None:
     registry = ContentExtractorRegistry(Settings())
 
@@ -80,9 +95,8 @@ def test_registry_selects_youtube_extractor_for_youtube_video_url() -> None:
 def test_registry_selects_youtube_extractor_for_unsupported_youtube_host_url() -> None:
     registry = ContentExtractorRegistry(Settings())
 
-    extractor = registry.select("https://www.youtube.com/@some-channel")
-
-    assert isinstance(extractor, YouTubeContentExtractor)
+    with pytest.raises(UnsupportedPlatformUrlError, match="youtube"):
+        registry.select("https://www.youtube.com/@some-channel")
 
 
 def test_naver_blog_extractor_returns_dedicated_content(monkeypatch) -> None:

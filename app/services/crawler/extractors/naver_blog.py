@@ -15,7 +15,7 @@ from app.services.crawler.playwright_service import (
     fetch_naver_blog_content,
     safe_url_for_log,
 )
-from app.services.crawler.naver_blog import is_naver_blog_url
+from app.services.crawler.naver_blog import is_naver_blog_host, is_naver_blog_url
 
 logger = logging.getLogger("processing.crawler.naver_blog")
 
@@ -34,6 +34,9 @@ class NaverBlogContentExtractor:
 
     def supports(self, url: str) -> bool:
         return is_naver_blog_url(url)
+
+    def recognizes_host(self, url: str) -> bool:
+        return is_naver_blog_host(url)
 
     async def extract(self, url: str) -> ExtractedContent:
         try:

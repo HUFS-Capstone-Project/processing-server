@@ -61,6 +61,10 @@ def is_instagram_media_url(url: str) -> bool:
     return _instagram_media_parts(url) is not None
 
 
+def is_instagram_host(url: str) -> bool:
+    return _instagram_path_parts(url) is not None
+
+
 def is_instagram_reel_url(url: str) -> bool:
     media = _instagram_media_parts(url)
     return media is not None and media[0] == "reel"

@@ -6,7 +6,7 @@ from app.services.crawler.extractors.types import (
     ExtractionMethod,
     SourceType,
 )
-from app.services.crawler.instagram_reel import is_instagram_media_url
+from app.services.crawler.instagram_reel import is_instagram_host, is_instagram_media_url
 from app.services.crawler.playwright_service import (
     fetch_instagram_media_result,
     instagram_fetch_metadata,
@@ -21,6 +21,9 @@ class InstagramContentExtractor:
 
     def supports(self, url: str) -> bool:
         return is_instagram_media_url(url)
+
+    def recognizes_host(self, url: str) -> bool:
+        return is_instagram_host(url)
 
     async def extract(self, url: str) -> ExtractedContent:
         result = await fetch_instagram_media_result(url, self._settings)

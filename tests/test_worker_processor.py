@@ -18,6 +18,7 @@ from app.domain.job import (
     PlaceCandidate,
 )
 from app.worker.processor import JobProcessor
+from app.services.crawler.extractors.registry import UnsupportedPlatformUrlError
 
 if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -887,3 +888,28 @@ def test_processor_marks_failed_on_error(monkeypatch) -> None:
     _run(processor.process_job(job.job_id))
 
     assert repo.failed is not None
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_maps_unsupported_platform_url_to_error_code(monkeypatch) -> None:
+    job = _new_job()
+    repo = FakeRepository(job)
+    settings = Settings()
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        raise UnsupportedPlatformUrlError("Unsupported or malformed youtube URL")
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=settings,
+    )
+
+    outcome = _run(processor.process_job(job.job_id))
+
+    assert outcome.succeeded is False
+    assert outcome.retryable is False
+    assert outcome.error_code == "UNSUPPORTED_PLATFORM_URL"
+    assert repo.failed_error_code == "UNSUPPORTED_PLATFORM_URL"
+    assert "Unsupported or malformed youtube URL" in (repo.failed or "")
