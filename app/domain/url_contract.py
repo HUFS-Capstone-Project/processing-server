@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
+from app.services.crawler.youtube import canonical_youtube_video_url
+
 
 @dataclass(frozen=True, slots=True)
 class SourceUrls:
@@ -26,6 +28,9 @@ def canonical_url_for(original_url: str) -> str:
     instagram_url = canonical_instagram_media_url(original_url)
     if instagram_url:
         return instagram_url
+    youtube_url = canonical_youtube_video_url(original_url)
+    if youtube_url:
+        return youtube_url
     naver_blog_url = canonical_naver_blog_url(original_url)
     if naver_blog_url:
         return naver_blog_url
@@ -33,7 +38,11 @@ def canonical_url_for(original_url: str) -> str:
 
 
 def crawl_url_for(original_url: str) -> str:
-    return canonical_instagram_media_url(original_url) or (original_url or "").strip()
+    return (
+        canonical_instagram_media_url(original_url)
+        or canonical_youtube_video_url(original_url)
+        or (original_url or "").strip()
+    )
 
 
 def canonical_generic_url(original_url: str) -> str:

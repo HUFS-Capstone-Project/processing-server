@@ -6,6 +6,11 @@ from app.domain.url_contract import (
     canonical_url_for,
     crawl_url_for,
 )
+from app.services.crawler.youtube import (
+    canonical_youtube_video_url,
+    extract_youtube_video_id,
+    is_youtube_host,
+)
 
 NAVER_BLOG_CANONICAL = "https://blog.naver.com/fkawnldhkd/224279607194"
 
@@ -60,3 +65,54 @@ def test_canonical_naver_blog_url_rejects_non_numeric_log_no() -> None:
 
     assert canonical_naver_blog_url(url) is None
     assert canonical_url_for(url) == "https://blog.naver.com/fkawnldhkd/not-a-number"
+
+
+def test_youtube_url_contract_normalizes_supported_video_urls() -> None:
+    cases = [
+        (
+            "https://youtube.com/shorts/fxQn26cv8KE?si=HCQ7t7zwzznUwtEj",
+            "fxQn26cv8KE",
+        ),
+        (
+            "https://www.youtube.com/shorts/fxQn26cv8KE?si=HCQ7t7zwzznUwtEj",
+            "fxQn26cv8KE",
+        ),
+        (
+            "https://youtu.be/ZJMi3m8spJA?si=YG0pDP1ABFUunMvl",
+            "ZJMi3m8spJA",
+        ),
+        (
+            "https://www.youtube.com/watch?v=fxQn26cv8KE&si=abc",
+            "fxQn26cv8KE",
+        ),
+        (
+            "https://youtube.com/watch?v=fxQn26cv8KE",
+            "fxQn26cv8KE",
+        ),
+        (
+            "https://m.youtube.com/watch?v=fxQn26cv8KE",
+            "fxQn26cv8KE",
+        ),
+    ]
+
+    for url, video_id in cases:
+        canonical = f"https://www.youtube.com/watch?v={video_id}"
+        assert is_youtube_host(url) is True
+        assert extract_youtube_video_id(url) == video_id
+        assert canonical_youtube_video_url(url) == canonical
+        assert canonical_url_for(url) == canonical
+        assert crawl_url_for(url) == canonical
+
+
+def test_youtube_host_urls_without_supported_video_id_are_not_canonicalized() -> None:
+    cases = [
+        "https://www.youtube.com/@channel",
+        "https://www.youtube.com/playlist?list=abc",
+        "https://www.youtube.com/results?search_query=cafe",
+        "https://youtu.be/not-valid",
+    ]
+
+    for url in cases:
+        assert is_youtube_host(url) is True
+        assert extract_youtube_video_id(url) is None
+        assert canonical_youtube_video_url(url) is None

@@ -6,6 +6,7 @@ from app.services.crawler.extractors.generic_web import GenericWebContentExtract
 from app.services.crawler.extractors.instagram import InstagramContentExtractor
 from app.services.crawler.extractors.naver_blog import NaverBlogContentExtractor
 from app.services.crawler.extractors.types import ExtractedContent
+from app.services.crawler.extractors.youtube import YouTubeContentExtractor
 
 
 class ContentExtractorRegistry:
@@ -21,6 +22,7 @@ class ContentExtractorRegistry:
         self._extractors = extractors or [
             InstagramContentExtractor(settings),
             NaverBlogContentExtractor(settings, fallback_extractor=generic),
+            YouTubeContentExtractor(settings),
             generic,
         ]
 

@@ -6,6 +6,7 @@ from app.services.crawler.extractors.generic_link_stats import GenericLinkStatsE
 from app.services.crawler.extractors.instagram_link_stats import InstagramLinkStatsExtractor
 from app.services.crawler.extractors.link_stats_base import LinkStatsExtractor
 from app.services.crawler.extractors.naver_blog_link_stats import NaverBlogLinkStatsExtractor
+from app.services.crawler.extractors.youtube_link_stats import YouTubeLinkStatsExtractor
 from app.services.crawler.extractors.types import (
     ExtractedContent,
     LinkStats,
@@ -28,6 +29,7 @@ class LinkStatsExtractorRegistry:
         self._extractors = extractors or [
             InstagramLinkStatsExtractor(),
             NaverBlogLinkStatsExtractor(),
+            YouTubeLinkStatsExtractor(),
             fallback,
         ]
 

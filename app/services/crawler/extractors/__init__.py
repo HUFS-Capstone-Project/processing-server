@@ -7,6 +7,7 @@ from app.services.crawler.extractors.types import (
     StatsConfidence,
     StatsSource,
 )
+from app.services.crawler.extractors.youtube import YouTubeContentExtractor
 
 __all__ = [
     "ContentExtractorRegistry",
@@ -16,4 +17,5 @@ __all__ = [
     "SourceType",
     "StatsConfidence",
     "StatsSource",
+    "YouTubeContentExtractor",
 ]

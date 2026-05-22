@@ -10,6 +10,11 @@ from app.services.crawler.extractors.instagram import InstagramContentExtractor
 from app.services.crawler.extractors.link_stats_registry import LinkStatsExtractorRegistry
 from app.services.crawler.extractors.naver_blog import NaverBlogContentExtractor
 from app.services.crawler.extractors.registry import ContentExtractorRegistry
+from app.services.crawler.extractors.youtube import (
+    YouTubeContentExtractor,
+    build_youtube_content_text,
+)
+from app.services.crawler.extractors.youtube_link_stats import YouTubeLinkStatsExtractor
 from app.services.crawler.extractors.types import (
     ExtractedContent,
     ExtractionMethod,
@@ -21,6 +26,7 @@ from app.services.crawler.extractors.types import (
 from app.services.crawler.extractors.instagram_link_stats import InstagramLinkStatsExtractor
 from app.services.crawler.extractors.naver_blog_link_stats import NaverBlogLinkStatsExtractor
 from app.services.crawler.playwright_service import NaverBlogFetchResult
+from app.services.crawler.youtube_data_api import YouTubeVideoResult
 
 
 def _run(coro):
@@ -61,6 +67,22 @@ def test_registry_selects_naver_blog_extractor_for_naver_blog_url() -> None:
     extractor = registry.select("https://blog.naver.com/example/123")
 
     assert isinstance(extractor, NaverBlogContentExtractor)
+
+
+def test_registry_selects_youtube_extractor_for_youtube_video_url() -> None:
+    registry = ContentExtractorRegistry(Settings())
+
+    extractor = registry.select("https://youtu.be/ZJMi3m8spJA?si=YG0pDP1ABFUunMvl")
+
+    assert isinstance(extractor, YouTubeContentExtractor)
+
+
+def test_registry_selects_youtube_extractor_for_unsupported_youtube_host_url() -> None:
+    registry = ContentExtractorRegistry(Settings())
+
+    extractor = registry.select("https://www.youtube.com/@some-channel")
+
+    assert isinstance(extractor, YouTubeContentExtractor)
 
 
 def test_naver_blog_extractor_returns_dedicated_content(monkeypatch) -> None:
@@ -394,3 +416,131 @@ def test_naver_blog_link_stats_returns_unavailable_without_parseable_like_count(
     assert stats.like_count is None
     assert stats.stats_source == StatsSource.UNAVAILABLE
     assert stats.confidence == StatsConfidence.LOW
+
+
+def test_youtube_extractor_builds_content_and_metadata_from_client_result() -> None:
+    class FakeYouTubeClient:
+        async def fetch_video(self, video_id: str) -> YouTubeVideoResult:
+            assert video_id == "ZJMi3m8spJA"
+            return YouTubeVideoResult(
+                video={
+                    "snippet": {
+                        "title": "Seoul cafe tour",
+                        "description": "Common Mansion near Gwanghwamun",
+                        "tags": ["카페", "CommonMansion"],
+                        "channelId": "channel-1",
+                        "channelTitle": "Cafe Channel",
+                        "publishedAt": "2026-05-01T00:00:00Z",
+                    },
+                    "statistics": {
+                        "viewCount": "1000",
+                        "likeCount": "12",
+                        "commentCount": "3",
+                    },
+                },
+                uploader_comments=[
+                    {
+                        "text": "주소는 서울 종로구 신문로 1-102 입니다.",
+                        "author_channel_id": "channel-1",
+                    }
+                ],
+            )
+
+    extractor = YouTubeContentExtractor(
+        Settings(youtube_api_key="test-key"),
+        client=FakeYouTubeClient(),
+    )
+
+    content = _run(extractor.extract("https://youtu.be/ZJMi3m8spJA?si=YG0pDP1ABFUunMvl"))
+
+    assert content.source_url == "https://www.youtube.com/watch?v=ZJMi3m8spJA"
+    assert content.source_type == SourceType.YOUTUBE
+    assert content.extraction_method == ExtractionMethod.YOUTUBE_DATA_API
+    assert "[제목]\nSeoul cafe tour" in content.content_text
+    assert "[작성자 댓글]\n주소는 서울 종로구 신문로 1-102 입니다." in content.content_text
+    assert "[관련 댓글]" not in content.content_text
+    assert content.raw_metadata["youtube"]["video_id"] == "ZJMi3m8spJA"
+    assert content.raw_metadata["youtube"]["statistics"]["likeCount"] == "12"
+
+
+def test_youtube_extractor_rejects_malformed_youtube_url_without_generic_fallback() -> None:
+    extractor = YouTubeContentExtractor(Settings(youtube_api_key="test-key"))
+
+    with pytest.raises(ValueError, match="Unsupported or malformed YouTube"):
+        _run(extractor.extract("https://www.youtube.com/@some-channel"))
+
+
+def test_youtube_content_text_includes_only_uploader_comments_and_limits_lengths() -> None:
+    settings = Settings(
+        youtube_description_max_chars=12,
+        youtube_comment_max_chars=10,
+        youtube_content_max_chars=200,
+    )
+    video = {
+        "snippet": {
+            "title": "Title",
+            "description": "Description is long",
+            "tags": ["tag1", "#tag2"],
+            "channelTitle": "Channel",
+        }
+    }
+    text = build_youtube_content_text(
+        video,
+        [
+            {"text": "Uploader comment is long"},
+        ],
+        settings,
+    )
+
+    assert text == (
+        "[제목]\nTitle\n\n"
+        "[설명]\nDescription\n\n"
+        "[태그]\n#tag1\n#tag2\n\n"
+        "[작성자 댓글]\nUploader c"
+    )
+    assert "[관련 댓글]" not in text
+
+
+def test_youtube_content_text_omits_comment_section_when_no_uploader_comments() -> None:
+    text = build_youtube_content_text(
+        {
+            "snippet": {
+                "title": "Title",
+                "description": "Description",
+                "channelTitle": "Channel",
+            }
+        },
+        [],
+        Settings(),
+    )
+
+    assert "[작성자 댓글]" not in text
+    assert text == "[제목]\nTitle\n\n[설명]\nDescription"
+
+
+def test_youtube_link_stats_reuses_raw_metadata_without_view_count() -> None:
+    content = ExtractedContent(
+        source_url="https://www.youtube.com/watch?v=ZJMi3m8spJA",
+        source_type=SourceType.YOUTUBE,
+        content_text="body",
+        raw_metadata={
+            "youtube": {
+                "snippet": {"publishedAt": "2026-05-01T00:00:00Z"},
+                "statistics": {
+                    "viewCount": "1000",
+                    "likeCount": "12",
+                    "commentCount": "3",
+                },
+            }
+        },
+    )
+
+    stats = _run(YouTubeLinkStatsExtractor().extract(content))
+
+    assert stats.source_type == SourceType.YOUTUBE
+    assert stats.like_count == 12
+    assert stats.comment_count == 3
+    assert stats.posted_at == "2026-05-01T00:00:00Z"
+    assert stats.stats_source == StatsSource.YOUTUBE_DATA_API
+    assert "view_count" not in stats.raw_stats
+    assert "viewCount" not in stats.raw_stats

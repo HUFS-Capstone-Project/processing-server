@@ -71,3 +71,16 @@ def test_business_hours_defaults_are_separate_from_link_queue() -> None:
     assert settings.business_hours_crawl_max_attempts == 2
     assert settings.business_hours_fetching_stale_timeout_seconds == 900
     assert settings.business_hours_success_ttl_seconds == 14 * 24 * 60 * 60
+
+
+def test_youtube_defaults_do_not_require_live_api_key() -> None:
+    settings = Settings(youtube_api_key="")
+
+    assert settings.youtube_api_key == ""
+    assert settings.youtube_comments_enabled is True
+    assert settings.youtube_comments_max_results == 20
+    assert settings.youtube_comments_max_pages == 1
+    assert settings.youtube_http_timeout_seconds == 10
+    assert settings.youtube_content_max_chars == 20000
+    assert settings.youtube_description_max_chars == 5000
+    assert settings.youtube_comment_max_chars == 2000

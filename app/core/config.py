@@ -99,6 +99,15 @@ class Settings(BaseSettings):
     instagram_rate_limit_cooldown_seconds: int = 1800
     instagram_cooldown_key: str = "processing:cooldown:instagram"
 
+    youtube_api_key: str = ""
+    youtube_comments_enabled: bool = True
+    youtube_comments_max_results: int = 20
+    youtube_comments_max_pages: int = 1
+    youtube_http_timeout_seconds: int = 10
+    youtube_content_max_chars: int = 20000
+    youtube_description_max_chars: int = 5000
+    youtube_comment_max_chars: int = 2000
+
     crawler_browser_reuse_enabled: bool = True
     crawler_recover_on_browser_crash: bool = True
     crawler_hard_timeout_margin_seconds: float = 5.0

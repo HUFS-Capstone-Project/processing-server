@@ -60,7 +60,7 @@ CREATE TABLE processing.crawled_contents (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_processing_crawled_contents_source_type
-        CHECK (source_type IN ('INSTAGRAM', 'NAVER_BLOG', 'GENERIC_WEB')),
+        CHECK (source_type IN ('INSTAGRAM', 'NAVER_BLOG', 'YOUTUBE', 'GENERIC_WEB')),
     CONSTRAINT chk_processing_crawled_contents_raw_metadata_object
         CHECK (jsonb_typeof(raw_metadata) = 'object')
 );
@@ -83,9 +83,9 @@ CREATE TABLE processing.link_stats (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_processing_link_stats_source_type
-        CHECK (source_type IN ('INSTAGRAM', 'NAVER_BLOG', 'GENERIC_WEB')),
+        CHECK (source_type IN ('INSTAGRAM', 'NAVER_BLOG', 'YOUTUBE', 'GENERIC_WEB')),
     CONSTRAINT chk_processing_link_stats_source
-        CHECK (stats_source IN ('META_TAG', 'INSTAGRAM_META', 'NAVER_BLOG_DOM', 'SCRAPED', 'UNAVAILABLE')),
+        CHECK (stats_source IN ('META_TAG', 'INSTAGRAM_META', 'NAVER_BLOG_DOM', 'YOUTUBE_DATA_API', 'SCRAPED', 'UNAVAILABLE')),
     CONSTRAINT chk_processing_link_stats_confidence
         CHECK (confidence IN ('HIGH', 'MEDIUM', 'LOW')),
     CONSTRAINT chk_processing_link_stats_raw_stats_object
