@@ -84,3 +84,14 @@ def test_youtube_defaults_do_not_require_live_api_key() -> None:
     assert settings.youtube_content_max_chars == 20000
     assert settings.youtube_description_max_chars == 5000
     assert settings.youtube_comment_max_chars == 2000
+
+
+def test_instagram_image_fetch_and_hf_ocr_defaults_are_separate_from_caption_extraction() -> None:
+    settings = Settings()
+
+    assert settings.instagram_image_fetch_timeout_ms == 8000
+    assert settings.instagram_image_fetch_max_images == 10
+    assert settings.instagram_image_fetch_max_next_clicks == 10
+    assert settings.hf_ocr_endpoint_url == ""
+    assert settings.hf_ocr_api_token == ""
+    assert settings.hf_ocr_model_name == "google/gemma-3-27b-it"

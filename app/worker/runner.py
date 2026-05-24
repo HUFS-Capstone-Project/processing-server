@@ -9,7 +9,7 @@ import time
 from app.core.config import get_settings
 from app.infra.db import JobRepository, create_db_pool
 from app.infra.kakao import KakaoLocalClient
-from app.infra.llm import HFExtractionClient
+from app.infra.llm import HFExtractionClient, HFOCRClient
 from app.infra.queue import RedisJobQueue
 from app.services.crawler.playwright_service import prewarm_crawler_runtime, shutdown_crawler_runtime
 from app.worker.processor import ExtractionPort, JobProcessor
@@ -93,6 +93,15 @@ def build_extraction_client(settings) -> ExtractionPort | None:
     return HFExtractionClient(settings)
 
 
+def build_ocr_client(settings) -> HFOCRClient | None:
+    endpoint_url = settings.hf_ocr_endpoint_url or settings.hf_extraction_endpoint_url
+    api_token = settings.hf_ocr_api_token or settings.hf_extraction_api_token
+    if not endpoint_url or not api_token:
+        logger.info("worker OCR client disabled (HF OCR endpoint URL/token is empty)")
+        return None
+    return HFOCRClient(settings)
+
+
 def build_place_search_client(settings):
     if not settings.kakao_rest_api_key:
         logger.warning("worker kakao client disabled (KAKAO_REST_API_KEY is empty)")
@@ -119,6 +128,7 @@ async def run_worker() -> None:
         repository=repository,
         settings=settings,
         extraction_client=build_extraction_client(settings),
+        ocr_client=build_ocr_client(settings),
         place_search_client=build_place_search_client(settings),
         cooldown_store=queue,
     )

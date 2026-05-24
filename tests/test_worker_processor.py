@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,7 +18,7 @@ from app.domain.job import (
     JobStatus,
     PlaceCandidate,
 )
-from app.worker.processor import JobProcessor
+from app.worker.processor import JobProcessor, build_instagram_ocr_augmented_content
 from app.services.crawler.extractors.registry import UnsupportedPlatformUrlError
 
 if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
@@ -101,6 +102,40 @@ class FakeExtractionClient:
             }
         )
         return self.result
+
+
+class SequentialExtractionClient:
+    def __init__(self, results: list[ExtractionResult | None]) -> None:
+        self.results = list(results)
+        self.calls: list[dict[str, object]] = []
+
+    async def extract(
+        self,
+        *,
+        text: str,
+        original_url: str,
+        media_type: str | None,
+    ) -> ExtractionResult | None:
+        self.calls.append(
+            {
+                "text": text,
+                "original_url": original_url,
+                "media_type": media_type,
+            }
+        )
+        if not self.results:
+            return None
+        return self.results.pop(0)
+
+
+class FakeOCRClient:
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+        self.calls: list[list[str]] = []
+
+    async def extract_texts_from_image_urls(self, image_urls: list[str]) -> list[str]:
+        self.calls.append(image_urls)
+        return self.texts
 
 
 class FakeInstagramCooldownStore:
@@ -484,6 +519,149 @@ def test_processor_passes_content_text_to_extraction_client(monkeypatch) -> None
         ],
     }
     assert repo.failed is None
+
+
+def test_instagram_ocr_augmented_content_includes_caption_and_image_text() -> None:
+    text = build_instagram_ocr_augmented_content(
+        caption="caption text",
+        ocr_texts=["상호명\n주소", "", "메뉴"],
+    )
+
+    assert text == (
+        "[caption]\ncaption text\n\n"
+        "[image_ocr]\n"
+        "image 1:\n상호명\n주소\n\n"
+        "image 2:\n메뉴"
+    )
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_runs_instagram_image_ocr_fallback_when_caption_extraction_is_empty(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    job = JobRecord(
+        job_id=uuid4(),
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/p/example/",
+        canonical_url="https://www.instagram.com/p/example/",
+        status=JobStatus.QUEUED,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    repo = FakeRepository(job)
+    final_result = ExtractionResult(
+        store_name="OCR Cafe",
+        address="서울 마포구 연남로 1",
+        store_name_evidence="OCR Cafe",
+        address_evidence="서울 마포구 연남로 1",
+        certainty=ExtractionCertainty.HIGH,
+    )
+    extractor = SequentialExtractionClient([None, final_result])
+    ocr = FakeOCRClient(["OCR Cafe\n서울 마포구 연남로 1"])
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="맛집 모음",
+            media_type="post",
+            source_type="INSTAGRAM",
+            extraction_method="INSTAGRAM_OG_META",
+            raw_metadata={"instagram": {"og_source": "og:description"}},
+        )
+
+    async def fake_fetch_images(url: str, _settings: Settings):
+        assert url == "https://www.instagram.com/p/example/"
+        return SimpleNamespace(
+            image_urls=["https://cdn.example/image1.jpg"],
+            timed_out=False,
+            error=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+    monkeypatch.setattr("app.worker.processor.fetch_instagram_post_images", fake_fetch_images)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=Settings(),
+        extraction_client=extractor,
+        ocr_client=ocr,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert len(extractor.calls) == 2
+    assert extractor.calls[0]["text"] == "맛집 모음"
+    assert extractor.calls[1]["text"] == (
+        "[caption]\n맛집 모음\n\n"
+        "[image_ocr]\nimage 1:\nOCR Cafe\n서울 마포구 연남로 1"
+    )
+    assert ocr.calls == [["https://cdn.example/image1.jpg"]]
+    assert repo.saved_content is not None
+    assert repo.saved_content["content_text"] == extractor.calls[1]["text"]
+    assert repo.saved_content["raw_metadata"]["instagram"]["ocr_fallback"] == {
+        "attempted": True,
+        "image_count": 1,
+        "ocr_text_count": 1,
+        "image_fetch_timed_out": False,
+        "image_fetch_error": None,
+    }
+    assert repo.saved_result is not None
+    assert repo.saved_result["extraction_result"]["store_name"] == "OCR Cafe"
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_skips_instagram_image_ocr_fallback_when_caption_has_places(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    job = JobRecord(
+        job_id=uuid4(),
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/p/example/",
+        canonical_url="https://www.instagram.com/p/example/",
+        status=JobStatus.QUEUED,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    repo = FakeRepository(job)
+    result = ExtractionResult(
+        store_name="Caption Cafe",
+        address=None,
+        store_name_evidence="Caption Cafe",
+        address_evidence=None,
+        certainty=ExtractionCertainty.HIGH,
+    )
+    extractor = SequentialExtractionClient([result])
+    ocr = FakeOCRClient(["should not be called"])
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="Caption Cafe",
+            media_type="post",
+            source_type="INSTAGRAM",
+        )
+
+    async def fake_fetch_images(_url: str, _settings: Settings):
+        raise AssertionError("image fallback should not run")
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+    monkeypatch.setattr("app.worker.processor.fetch_instagram_post_images", fake_fetch_images)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=Settings(),
+        extraction_client=extractor,
+        ocr_client=ocr,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert len(extractor.calls) == 1
+    assert ocr.calls == []
+    assert repo.saved_content is not None
+    assert repo.saved_content["content_text"] == "Caption Cafe"
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")

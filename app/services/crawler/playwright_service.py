@@ -20,6 +20,7 @@ from playwright.async_api import async_playwright
 from app.core.config import Settings
 from app.services.crawler.instagram_context import (
     INSTAGRAM_BROWSER_ARGS,
+    InstagramPageRouteStats,
     OG_EXTRACTION_JS,
     OG_READY_PREDICATE_JS,
     configure_instagram_page,
@@ -126,6 +127,107 @@ INSTAGRAM_DIAGNOSTICS_JS = """() => {
     };
 }"""
 
+INSTAGRAM_IMAGE_URL_EXTRACTION_JS = r"""() => {
+    const urls = [];
+    const push = (value) => {
+        if (!value || typeof value !== "string") return;
+        const trimmed = value.trim();
+        if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return;
+        try {
+            urls.push(new URL(trimmed, window.location.href).href);
+        } catch (e) {}
+    };
+    const pushBestCandidate = (media) => {
+        const candidates = media && media.image_versions2 && media.image_versions2.candidates;
+        if (!Array.isArray(candidates) || candidates.length === 0) return;
+        const sorted = [...candidates].sort((a, b) => ((b.width || 0) * (b.height || 0)) - ((a.width || 0) * (a.height || 0)));
+        push(sorted[0] && sorted[0].url);
+    };
+    const shortcode = (window.location.pathname || "").split("/").filter(Boolean)[1] || "";
+    const seenObjects = new Set();
+    const findCurrentMedia = (value) => {
+        if (!value || typeof value !== "object" || seenObjects.has(value)) return null;
+        seenObjects.add(value);
+        if (
+            (value.code === shortcode || value.shortcode === shortcode) &&
+            (value.image_versions2 || Array.isArray(value.carousel_media))
+        ) {
+            return value;
+        }
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                const found = findCurrentMedia(item);
+                if (found) return found;
+            }
+            return null;
+        }
+        for (const item of Object.values(value)) {
+            const found = findCurrentMedia(item);
+            if (found) return found;
+        }
+        return null;
+    };
+
+    for (const script of Array.from(document.querySelectorAll('script[type="application/json"]'))) {
+        const text = script.textContent || "";
+        if (!shortcode || !text.includes(shortcode)) continue;
+        try {
+            const media = findCurrentMedia(JSON.parse(text));
+            if (!media) continue;
+            const carousel = Array.isArray(media.carousel_media) ? media.carousel_media : [];
+            if (carousel.length > 0) {
+                carousel.forEach(pushBestCandidate);
+            } else {
+                pushBestCandidate(media);
+            }
+            if (urls.length > 0) return urls;
+        } catch (e) {}
+    }
+
+    const pushSrcset = (value) => {
+        if (!value || typeof value !== "string") return;
+        for (const part of value.split(",")) {
+            const candidate = part.trim().split(/\s+/)[0];
+            push(candidate);
+        }
+    };
+
+    document.querySelectorAll(
+        'meta[property="og:image"], meta[name="twitter:image"], meta[property="twitter:image"]'
+    ).forEach((el) => push(el.getAttribute("content")));
+    document.querySelectorAll("link[as='image']").forEach((el) => {
+        push(el.getAttribute("href"));
+        pushSrcset(el.getAttribute("imagesrcset"));
+    });
+    document.querySelectorAll("article img, main img").forEach((el) => {
+        push(el.currentSrc || el.src || el.getAttribute("src"));
+        pushSrcset(el.getAttribute("srcset"));
+    });
+    document.querySelectorAll("picture source").forEach((el) => {
+        push(el.getAttribute("src"));
+        pushSrcset(el.getAttribute("srcset"));
+    });
+
+    const scripts = Array.from(document.querySelectorAll("script"));
+    const cdnPattern = /https?:\\?\/\\?\/[^"'\\\s<>]+(?:cdninstagram|fbcdn)[^"'\\\s<>]+?\.(?:jpg|jpeg|png|webp)(?:\?[^"'\\\s<>]*)?/gi;
+    for (const script of scripts) {
+        const text = script.textContent || "";
+        for (const match of text.matchAll(cdnPattern)) {
+            push(match[0].replaceAll("\\/", "/").replaceAll("\\u0026", "&"));
+        }
+    }
+
+    return urls;
+}"""
+
+INSTAGRAM_CAROUSEL_NEXT_SELECTORS = [
+    'button[aria-label="Next"]',
+    'button[aria-label="다음"]',
+    'button[aria-label="次へ"]',
+    'button[aria-label="Siguiente"]',
+    'button[aria-label="Suivant"]',
+]
+
 
 @dataclass(slots=True)
 class InstagramFetchResult:
@@ -152,6 +254,22 @@ class InstagramFetchResult:
     login_form_present: bool = False
     challenge_marker_present: bool = False
     empty_body: bool = False
+
+
+@dataclass(slots=True)
+class InstagramImageFetchResult:
+    source_url: str
+    image_urls: list[str]
+    response_status: int | None = None
+    response_url: str | None = None
+    final_url: str | None = None
+    total_ms: int = 0
+    navigation_ms: int = 0
+    collection_ms: int = 0
+    next_clicks: int = 0
+    timed_out: bool = False
+    blocked_resource_count: int = 0
+    error: str | None = None
 
 
 @dataclass(slots=True)
@@ -308,6 +426,141 @@ async def _instagram_page_diagnostics(page) -> dict[str, Any]:
     except Exception:
         logger.debug("instagram diagnostics evaluation failed", exc_info=True)
         return {}
+
+
+def _normalize_instagram_image_urls(urls: list[Any], *, max_images: int) -> list[str]:
+    normalized: list[str] = []
+    seen_by_key: dict[str, int] = {}
+    limit = max(1, int(max_images))
+    for value in urls:
+        text = str(value or "").strip()
+        if not text or text.startswith(("data:", "blob:")):
+            continue
+        parsed = urlparse(text)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if not parsed.netloc:
+            continue
+        clean = parsed._replace(fragment="").geturl()
+        if not _is_probable_instagram_post_image_url(clean):
+            continue
+        key = _instagram_image_dedupe_key(parsed)
+        existing_index = seen_by_key.get(key)
+        if existing_index is not None:
+            if _instagram_image_quality_score(clean) > _instagram_image_quality_score(
+                normalized[existing_index]
+            ):
+                normalized[existing_index] = clean
+            continue
+        seen_by_key[key] = len(normalized)
+        normalized.append(clean)
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
+def _is_probable_instagram_post_image_url(url: str) -> bool:
+    lower = url.lower()
+    if "cdninstagram.com" not in lower and "fbcdn.net" not in lower:
+        return False
+    if re.search(r"/t\d+\.\d+-19/", lower):
+        return False
+    if "profile_pic" in lower or "s150x150" in lower:
+        return False
+    return any(ext in lower for ext in (".jpg", ".jpeg", ".png", ".webp"))
+
+
+def _instagram_image_dedupe_key(parsed) -> str:
+    filename = (parsed.path or "").rsplit("/", 1)[-1]
+    return filename or parsed._replace(query="", fragment="").geturl()
+
+
+def _instagram_image_quality_score(url: str) -> int:
+    lower = url.lower()
+    score = 0
+    if "_dst-jpg" not in lower and "a_dst-jpg" not in lower:
+        score += 2
+    if re.search(r"[?&]stp=[^&]*c\d+\.", lower):
+        score -= 2
+    if "s640x640" in lower:
+        score -= 1
+    return score
+
+
+async def _extract_instagram_image_urls_from_page(page, *, max_images: int) -> list[str]:
+    try:
+        raw = await page.evaluate(INSTAGRAM_IMAGE_URL_EXTRACTION_JS)
+    except Exception:
+        logger.debug("instagram image url extraction evaluation failed", exc_info=True)
+        return []
+    if not isinstance(raw, list):
+        return []
+    return _normalize_instagram_image_urls(raw, max_images=max_images)
+
+
+async def _configure_instagram_image_page(page, settings: Settings) -> InstagramPageRouteStats:
+    blocked_types = settings.instagram_block_resource_type_set - {"image"}
+    stats = InstagramPageRouteStats()
+    if not blocked_types:
+        return stats
+
+    async def _on_route(route) -> None:
+        resource_type = route.request.resource_type
+        if resource_type in blocked_types:
+            stats.blocked_resource_count += 1
+            await route.abort()
+            return
+        await route.continue_()
+
+    await page.route("**/*", _on_route)
+    return stats
+
+
+async def _click_instagram_carousel_next(page) -> bool:
+    for selector in INSTAGRAM_CAROUSEL_NEXT_SELECTORS:
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() <= 0:
+                continue
+            if not await locator.is_visible():
+                continue
+            await locator.click(timeout=1000)
+            return True
+        except PlaywrightTimeoutError:
+            continue
+        except Exception:
+            logger.debug("instagram carousel next click failed selector=%s", selector, exc_info=True)
+            continue
+    return False
+
+
+async def _collect_instagram_post_image_urls(page, settings: Settings) -> tuple[list[str], int, int]:
+    max_images = max(1, int(settings.instagram_image_fetch_max_images))
+    max_next_clicks = max(0, int(settings.instagram_image_fetch_max_next_clicks))
+    urls: list[str] = []
+    next_clicks = 0
+    started = time.monotonic()
+
+    def merge(new_urls: list[str]) -> None:
+        nonlocal urls
+        urls = _normalize_instagram_image_urls(urls + new_urls, max_images=max_images)
+
+    merge(await _extract_instagram_image_urls_from_page(page, max_images=max_images))
+    for _ in range(max_next_clicks):
+        if len(urls) >= max_images:
+            break
+        clicked = await _click_instagram_carousel_next(page)
+        if not clicked:
+            break
+        next_clicks += 1
+        await page.wait_for_timeout(350)
+        before = len(urls)
+        merge(await _extract_instagram_image_urls_from_page(page, max_images=max_images))
+        if len(urls) == before:
+            continue
+
+    collection_ms = int((time.monotonic() - started) * 1000)
+    return urls, next_clicks, collection_ms
 
 
 def _instagram_result_metadata(result: InstagramFetchResult) -> dict[str, Any]:
@@ -833,6 +1086,92 @@ async def fetch_instagram_media_result(url: str, settings: Settings) -> Instagra
         ),
         timeout=hard_timeout,
     )
+
+
+async def _fetch_instagram_post_images_inner(url: str, settings: Settings) -> InstagramImageFetchResult:
+    started = time.monotonic()
+    navigation_timeout_ms = max(1, settings.instagram_navigation_timeout) * 1000
+    logger.info(
+        "crawler start mode=instagram_images url=%s navigation_timeout_ms=%s max_images=%s max_next_clicks=%s",
+        safe_url_for_log(url),
+        navigation_timeout_ms,
+        settings.instagram_image_fetch_max_images,
+        settings.instagram_image_fetch_max_next_clicks,
+    )
+    launch_args = _browser_args(settings) + list(INSTAGRAM_BROWSER_ARGS)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=launch_args)
+        try:
+            context = await new_instagram_browser_context(browser, settings)
+            try:
+                page = await context.new_page()
+                route_stats = await _configure_instagram_image_page(page, settings)
+                navigation_started = time.monotonic()
+                response = await page.goto(
+                    url,
+                    wait_until="domcontentloaded",
+                    timeout=navigation_timeout_ms,
+                )
+                navigation_ms = int((time.monotonic() - navigation_started) * 1000)
+                image_urls, next_clicks, collection_ms = await _collect_instagram_post_image_urls(
+                    page,
+                    settings,
+                )
+                total_ms = int((time.monotonic() - started) * 1000)
+                result = InstagramImageFetchResult(
+                    source_url=url,
+                    image_urls=image_urls,
+                    response_status=response.status if response is not None else None,
+                    response_url=response.url if response is not None else None,
+                    final_url=getattr(page, "url", None),
+                    total_ms=total_ms,
+                    navigation_ms=navigation_ms,
+                    collection_ms=collection_ms,
+                    next_clicks=next_clicks,
+                    blocked_resource_count=route_stats.blocked_resource_count,
+                )
+                logger.info(
+                    (
+                        "crawler done mode=instagram_images url=%s total_ms=%s "
+                        "navigation_ms=%s collection_ms=%s image_count=%s next_clicks=%s "
+                        "response_status=%s final_url=%s blocked_resource_count=%s"
+                    ),
+                    safe_url_for_log(url),
+                    result.total_ms,
+                    result.navigation_ms,
+                    result.collection_ms,
+                    len(result.image_urls),
+                    result.next_clicks,
+                    result.response_status,
+                    safe_url_for_log(result.final_url),
+                    result.blocked_resource_count,
+                )
+                return result
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
+
+
+async def fetch_instagram_post_images(url: str, settings: Settings) -> InstagramImageFetchResult:
+    timeout_seconds = max(
+        5.0,
+        (max(1, settings.instagram_navigation_timeout) * 1000 + max(0, settings.instagram_image_fetch_timeout_ms))
+        / 1000.0
+        + max(0.0, settings.crawler_hard_timeout_margin_seconds),
+    )
+    try:
+        return await asyncio.wait_for(
+            _fetch_instagram_post_images_inner(str(url), settings),
+            timeout=timeout_seconds,
+        )
+    except (asyncio.TimeoutError, TimeoutError):
+        return InstagramImageFetchResult(
+            source_url=str(url),
+            image_urls=[],
+            timed_out=True,
+            error="timeout",
+        )
 
 
 async def fetch_generic_web_content(url: str, settings: Settings) -> tuple[str | None, str]:
