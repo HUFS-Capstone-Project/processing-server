@@ -139,7 +139,7 @@ class Settings(BaseSettings):
     hf_extraction_retry_backoff_multiplier: float = 2.0
     hf_ocr_endpoint_url: str = ""
     hf_ocr_api_token: str = ""
-    hf_ocr_model_name: str = "google/gemma-3-27b-it"
+    hf_ocr_model_name: str = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
     hf_ocr_timeout_seconds: int = 30
     hf_ocr_max_new_tokens: int = 1024
     hf_ocr_max_attempts: int = 2

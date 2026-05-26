@@ -94,4 +94,4 @@ def test_instagram_image_fetch_and_hf_ocr_defaults_are_separate_from_caption_ext
     assert settings.instagram_image_fetch_max_next_clicks == 10
     assert settings.hf_ocr_endpoint_url == ""
     assert settings.hf_ocr_api_token == ""
-    assert settings.hf_ocr_model_name == "google/gemma-3-27b-it"
+    assert settings.hf_ocr_model_name == "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"

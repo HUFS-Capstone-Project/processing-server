@@ -355,7 +355,7 @@ def test_hf_ocr_client_sends_image_url_chat_payload() -> None:
         Settings(
             hf_ocr_endpoint_url="https://example.test/v1/chat/completions",
             hf_ocr_api_token="test-token",
-            hf_ocr_model_name="google/gemma-3-27b-it",
+            hf_ocr_model_name="meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
             hf_ocr_max_new_tokens=512,
         ),
         transport=httpx.MockTransport(handler),
@@ -368,7 +368,7 @@ def test_hf_ocr_client_sends_image_url_chat_payload() -> None:
     )
 
     assert text == "서울 종로구\n커먼맨션"
-    assert seen_requests[0]["model"] == "google/gemma-3-27b-it"
+    assert seen_requests[0]["model"] == "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
     assert seen_requests[0]["max_tokens"] == 512
     message = seen_requests[0]["messages"][0]
     assert message["role"] == "user"
