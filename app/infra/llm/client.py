@@ -98,6 +98,10 @@ class HFExtractionError(Exception):
     pass
 
 
+class HFOCRError(Exception):
+    pass
+
+
 class HFExtractionClient:
     def __init__(
         self,
@@ -225,6 +229,117 @@ class HFExtractionClient:
         result.address_evidence = first_place.address_evidence
         result.certainty = first_place.certainty
         return result
+
+
+OCR_PROMPT = (
+    "You are an OCR engine. Extract all visible Korean and English text from this "
+    "Instagram post image. Preserve useful line breaks. Return only the extracted "
+    "text, with no preface, explanation, Markdown, or translation. If no text is "
+    "visible, return an empty string."
+)
+
+
+class HFOCRClient:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._settings = settings
+        self._transport = transport
+
+    async def extract_text_from_image_url(self, image_url: str) -> str:
+        if not str(image_url or "").strip():
+            return ""
+        endpoint_url = self._endpoint_url()
+        api_token = self._api_token()
+        if not endpoint_url:
+            raise HFOCRError("HF OCR endpoint URL is empty")
+        if not api_token:
+            raise HFOCRError("HF OCR API token is empty")
+
+        payload = self._build_payload(image_url=image_url)
+        headers = {
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json",
+        }
+        timeout = httpx.Timeout(self._settings.hf_ocr_timeout_seconds)
+        max_attempts = max(1, self._settings.hf_ocr_max_attempts)
+        last_error: HFOCRError | None = None
+
+        async with httpx.AsyncClient(timeout=timeout, transport=self._transport) as client:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    response = await client.post(
+                        endpoint_url,
+                        headers=headers,
+                        json=payload,
+                    )
+                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                    last_error = HFOCRError(str(exc) or exc.__class__.__name__)
+                    if attempt >= max_attempts:
+                        raise last_error from exc
+                    await self._sleep_before_retry(attempt)
+                    continue
+
+                if response.status_code >= 400:
+                    error = HFOCRError(f"HF OCR request failed ({response.status_code})")
+                    if not _is_retryable_status(response.status_code) or attempt >= max_attempts:
+                        raise error
+                    last_error = error
+                    await self._sleep_before_retry(attempt)
+                    continue
+
+                return self._parse_response(response)
+
+        if last_error is not None:
+            raise last_error
+        raise HFOCRError("HF OCR failed")
+
+    async def extract_texts_from_image_urls(self, image_urls: list[str]) -> list[str]:
+        texts: list[str] = []
+        for image_url in image_urls:
+            text = (await self.extract_text_from_image_url(image_url)).strip()
+            if text:
+                texts.append(text)
+        return texts
+
+    def _build_payload(self, *, image_url: str) -> dict[str, Any]:
+        return {
+            "model": self._settings.hf_ocr_model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": OCR_PROMPT},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
+            "temperature": 0.0,
+            "max_tokens": self._settings.hf_ocr_max_new_tokens,
+        }
+
+    def _endpoint_url(self) -> str:
+        return self._settings.hf_ocr_endpoint_url or self._settings.hf_extraction_endpoint_url
+
+    def _api_token(self) -> str:
+        return self._settings.hf_ocr_api_token or self._settings.hf_extraction_api_token
+
+    def _parse_response(self, response: httpx.Response) -> str:
+        try:
+            response_payload = response.json()
+        except json.JSONDecodeError as exc:
+            raise HFOCRError("HF OCR response is not valid JSON") from exc
+        return extract_text_from_hf_payload(response_payload).strip()
+
+    async def _sleep_before_retry(self, attempt: int) -> None:
+        base_seconds = max(0.0, self._settings.hf_extraction_retry_base_seconds)
+        if base_seconds <= 0:
+            return
+        multiplier = max(1.0, self._settings.hf_extraction_retry_backoff_multiplier)
+        await asyncio.sleep(base_seconds * (multiplier ** max(0, attempt - 1)))
 
 
 def extract_text_from_hf_payload(payload: Any) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -35,6 +36,16 @@ def _run(coro):
         pytest.skip(f"Event loop creation is blocked in this environment: {exc}")
 
 
+def _run_with_subprocesses(coro):
+    if not hasattr(asyncio, "WindowsProactorEventLoopPolicy"):
+        return _run(coro)
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    try:
+        return asyncio.run(coro)
+    finally:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 class _FakeRuntime:
     class _BrowserStub:
         @staticmethod
@@ -64,6 +75,47 @@ class _FakeRuntime:
         self._launched = False
 
 
+class _FakeInstagramImagePage:
+    def __init__(self) -> None:
+        self.step = 0
+
+    async def evaluate(self, script: str):
+        assert script == service.INSTAGRAM_IMAGE_URL_EXTRACTION_JS
+        if self.step == 0:
+            return [
+                "https://scontent.cdninstagram.com/v/t51.29350-15/one.jpg?x=1#frag",
+                "https://scontent.cdninstagram.com/v/t51.29350-15/one.jpg?x=1#frag",
+            ]
+        return [
+            "https://scontent.cdninstagram.com/v/t51.29350-15/two.jpg?x=2",
+        ]
+
+    def locator(self, _selector: str):
+        return _FakeInstagramNextLocator(self)
+
+    async def wait_for_timeout(self, _timeout_ms: int):
+        return None
+
+
+class _FakeInstagramNextLocator:
+    def __init__(self, page: _FakeInstagramImagePage) -> None:
+        self._page = page
+
+    @property
+    def first(self):
+        return self
+
+    async def count(self) -> int:
+        return 1 if self._page.step == 0 else 0
+
+    async def is_visible(self) -> bool:
+        return self._page.step == 0
+
+    async def click(self, timeout: int):
+        assert timeout == 1000
+        self._page.step += 1
+
+
 def test_naver_blog_log_no_extraction_from_path_and_query() -> None:
     assert service.extract_naver_blog_log_no("https://blog.naver.com/example/123") == "123"
     assert (
@@ -89,6 +141,41 @@ def test_naver_blog_text_normalization_removes_zero_width_and_compacts_blank_lin
     text = "  hello\u200b\u00a0 world  \n\n\n  second\t\tline  \n"
 
     assert service.normalize_naver_blog_text(text) == "hello world\n\nsecond line"
+
+
+def test_instagram_image_url_normalization_deduplicates_and_limits() -> None:
+    urls = service._normalize_instagram_image_urls(
+        [
+            "https://scontent.cdninstagram.com/a.jpg?x=1#fragment",
+            "https://scontent.cdninstagram.com/a.jpg?x=1#fragment",
+            "data:image/png;base64,abc",
+            "not-a-url",
+            "https://scontent.cdninstagram.com/v/t51.2885-19/profile.jpg?stp=dst-jpg_s150x150",
+            "https://scontent.cdninstagram.com/b.webp",
+        ],
+        max_images=1,
+    )
+
+    assert urls == ["https://scontent.cdninstagram.com/a.jpg?x=1"]
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_collect_instagram_post_image_urls_clicks_carousel_next() -> None:
+    page = _FakeInstagramImagePage()
+
+    urls, next_clicks, collection_ms = _run(
+        service._collect_instagram_post_image_urls(
+            page,
+            Settings(instagram_image_fetch_max_images=5, instagram_image_fetch_max_next_clicks=3),
+        )
+    )
+
+    assert urls == [
+        "https://scontent.cdninstagram.com/v/t51.29350-15/one.jpg?x=1",
+        "https://scontent.cdninstagram.com/v/t51.29350-15/two.jpg?x=2",
+    ]
+    assert next_clicks == 1
+    assert collection_ms >= 0
 
 
 def test_instagram_fetch_metadata_sanitizes_diagnostic_urls() -> None:
@@ -304,3 +391,32 @@ def test_prewarm_runtime_calls_ensure_browser(monkeypatch) -> None:
     assert warmed is True
     assert runtime.ensure_calls == 1
     assert runtime.launch_count == 1
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_LIVE_INSTAGRAM_IMAGE_TESTS") != "1",
+    reason="Set RUN_LIVE_INSTAGRAM_IMAGE_TESTS=1 to crawl live Instagram post images.",
+)
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.instagram.com/p/DX8pE6WEeom/?",
+        "https://www.instagram.com/p/DYgvDx0gc_X/?img_index=1",
+        "https://www.instagram.com/p/C6Kp79xRiGC",
+        "https://www.instagram.com/p/DLmXSK3znl-",
+    ],
+)
+def test_live_instagram_post_image_fetch_returns_images(url: str) -> None:
+    settings = Settings(
+        instagram_image_fetch_timeout_ms=12000,
+        instagram_image_fetch_max_images=12,
+        instagram_image_fetch_max_next_clicks=12,
+        crawler_browser_reuse_enabled=False,
+    )
+
+    result = _run_with_subprocesses(service.fetch_instagram_post_images(url, settings))
+
+    assert result.timed_out is False
+    assert result.response_status != 429
+    assert result.image_urls

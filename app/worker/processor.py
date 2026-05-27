@@ -22,14 +22,36 @@ from app.domain.job import (
     extracted_places_from_result,
 )
 from app.domain.job.service import INSTAGRAM_RATE_LIMITED_ERROR_CODE
-from app.domain.url_contract import crawl_url_for, is_instagram_media_url
+from app.domain.url_contract import crawl_url_for, is_instagram_media_url, is_instagram_post_url
 from app.infra.llm import HFExtractionError
 from app.infra.kakao import KakaoNonRetryableError
+from app.services.crawler.playwright_service import fetch_instagram_post_images
 from app.services.crawler.extractors.registry import UnsupportedPlatformUrlError
 
 logger = logging.getLogger("processing.worker.processor")
 
 UNSUPPORTED_PLATFORM_URL_ERROR_CODE = "UNSUPPORTED_PLATFORM_URL"
+
+
+def build_instagram_ocr_augmented_content(
+    *,
+    caption: str,
+    ocr_texts: list[str],
+) -> str:
+    sections: list[tuple[str, str]] = []
+    clean_caption = (caption or "").strip()
+    if clean_caption:
+        sections.append(("[caption]", clean_caption))
+
+    clean_ocr_texts = [text.strip() for text in ocr_texts if text and text.strip()]
+    if clean_ocr_texts:
+        image_text = "\n\n".join(
+            f"image {index}:\n{text}"
+            for index, text in enumerate(clean_ocr_texts, 1)
+        )
+        sections.append(("[image_ocr]", image_text))
+
+    return "\n\n".join(f"{header}\n{body}" for header, body in sections).strip()
 
 
 @dataclass(slots=True)
@@ -74,6 +96,10 @@ class ExtractionPort(Protocol):
     ) -> ExtractionResult | None: ...
 
 
+class OCRPort(Protocol):
+    async def extract_texts_from_image_urls(self, image_urls: list[str]) -> list[str]: ...
+
+
 class InstagramCooldownPort(Protocol):
     async def set_instagram_cooldown(self, seconds: int) -> None: ...
 
@@ -99,12 +125,14 @@ class JobProcessor:
         repository: JobRepositoryPort,
         settings: Settings,
         extraction_client: ExtractionPort | None = None,
+        ocr_client: OCRPort | None = None,
         place_search_client: PlaceSearchPort | None = None,
         cooldown_store: InstagramCooldownPort | None = None,
     ) -> None:
         self._repository = repository
         self._settings = settings
         self._extraction_client = extraction_client
+        self._ocr_client = ocr_client
         self._place_search_client = place_search_client
         self._cooldown_store = cooldown_store
 
@@ -404,9 +432,26 @@ class JobProcessor:
         original_url: str,
         crawl_artifact: CrawlArtifact,
     ) -> ExtractionResult | None:
-        if not self._extraction_client or not crawl_artifact.content_text:
+        if not self._extraction_client:
             return None
 
+        extraction_result: ExtractionResult | None = None
+        if crawl_artifact.content_text:
+            extraction_result = await self._run_extraction(original_url, crawl_artifact)
+            if self._has_extracted_places(extraction_result):
+                return extraction_result
+
+        fallback_result = await self._extract_with_instagram_image_fallback(
+            original_url,
+            crawl_artifact,
+        )
+        return fallback_result if fallback_result is not None else extraction_result
+
+    async def _run_extraction(
+        self,
+        original_url: str,
+        crawl_artifact: CrawlArtifact,
+    ) -> ExtractionResult | None:
         try:
             return await self._extraction_client.extract(
                 text=crawl_artifact.content_text,
@@ -418,6 +463,77 @@ class JobProcessor:
             if self._settings.extraction_failure_retry_enabled:
                 raise
             return None
+
+    async def _extract_with_instagram_image_fallback(
+        self,
+        original_url: str,
+        crawl_artifact: CrawlArtifact,
+    ) -> ExtractionResult | None:
+        if not self._ocr_client:
+            return None
+        if not self._should_run_instagram_image_fallback(original_url, crawl_artifact):
+            return None
+
+        try:
+            image_result = await fetch_instagram_post_images(crawl_artifact.url, self._settings)
+            ocr_texts = await self._ocr_client.extract_texts_from_image_urls(image_result.image_urls)
+            augmented_text = build_instagram_ocr_augmented_content(
+                caption=crawl_artifact.content_text,
+                ocr_texts=ocr_texts,
+            )
+            self._record_instagram_ocr_fallback(
+                crawl_artifact,
+                image_count=len(image_result.image_urls),
+                ocr_text_count=len(ocr_texts),
+                image_fetch_timed_out=image_result.timed_out,
+                image_fetch_error=image_result.error,
+            )
+            if not augmented_text:
+                return None
+            crawl_artifact.content_text = augmented_text
+            return await self._run_extraction(original_url, crawl_artifact)
+        except Exception:
+            logger.exception("instagram image OCR fallback failed original_url=%s", original_url)
+            if self._settings.extraction_failure_retry_enabled:
+                raise
+            return None
+
+    @staticmethod
+    def _has_extracted_places(result: ExtractionResult | None) -> bool:
+        return bool(result and extracted_places_from_result(result))
+
+    @staticmethod
+    def _should_run_instagram_image_fallback(
+        original_url: str,
+        crawl_artifact: CrawlArtifact,
+    ) -> bool:
+        return (
+            crawl_artifact.source_type == "INSTAGRAM"
+            and crawl_artifact.media_type == "post"
+            and is_instagram_post_url(original_url)
+        )
+
+    @staticmethod
+    def _record_instagram_ocr_fallback(
+        crawl_artifact: CrawlArtifact,
+        *,
+        image_count: int,
+        ocr_text_count: int,
+        image_fetch_timed_out: bool,
+        image_fetch_error: str | None,
+    ) -> None:
+        raw_metadata = dict(crawl_artifact.raw_metadata or {})
+        instagram_metadata = dict(raw_metadata.get("instagram") or {})
+        instagram_metadata["ocr_fallback"] = {
+            "attempted": True,
+            "image_count": image_count,
+            "ocr_text_count": ocr_text_count,
+            "image_fetch_timed_out": image_fetch_timed_out,
+            "image_fetch_error": image_fetch_error,
+        }
+        raw_metadata["instagram"] = instagram_metadata
+        raw_metadata["extraction_source"] = "instagram_og_meta_with_image_ocr_fallback"
+        crawl_artifact.raw_metadata = raw_metadata
 
     async def _enrich_place(
         self,

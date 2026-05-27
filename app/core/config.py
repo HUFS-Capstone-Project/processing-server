@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     instagram_navigation_timeout: int = 12
     instagram_og_wait_timeout_ms: int = 3000
     instagram_block_resource_types: str = "image,font,media"
+    instagram_image_fetch_timeout_ms: int = 8000
+    instagram_image_fetch_max_images: int = 10
+    instagram_image_fetch_max_next_clicks: int = 10
     instagram_rate_limit_cooldown_seconds: int = 1800
     instagram_cooldown_key: str = "processing:cooldown:instagram"
 
@@ -134,6 +137,12 @@ class Settings(BaseSettings):
     hf_extraction_max_attempts: int = 3
     hf_extraction_retry_base_seconds: float = 0.0
     hf_extraction_retry_backoff_multiplier: float = 2.0
+    hf_ocr_endpoint_url: str = ""
+    hf_ocr_api_token: str = ""
+    hf_ocr_model_name: str = "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
+    hf_ocr_timeout_seconds: int = 30
+    hf_ocr_max_new_tokens: int = 1024
+    hf_ocr_max_attempts: int = 2
     extraction_failure_retry_enabled: bool = True
 
     @field_validator("processing_schema")

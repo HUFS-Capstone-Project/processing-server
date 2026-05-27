@@ -11,6 +11,8 @@ from app.domain.job import ExtractionCertainty
 from app.infra.llm import (
     HFExtractionClient,
     HFExtractionError,
+    HFOCRClient,
+    HFOCRError,
     extract_json_object,
     extract_text_from_hf_payload,
 )
@@ -337,3 +339,102 @@ def test_hf_extraction_client_raises_when_endpoint_is_missing() -> None:
                 media_type=None,
             )
         )
+
+
+def test_hf_ocr_client_sends_image_url_chat_payload() -> None:
+    seen_requests: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "서울 종로구\n커먼맨션"}}]},
+        )
+
+    client = HFOCRClient(
+        Settings(
+            hf_ocr_endpoint_url="https://example.test/v1/chat/completions",
+            hf_ocr_api_token="test-token",
+            hf_ocr_model_name="meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+            hf_ocr_max_new_tokens=512,
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    text = _run(
+        client.extract_text_from_image_url(
+            "https://scontent.cdninstagram.com/v/t51.29350-15/image.jpg"
+        )
+    )
+
+    assert text == "서울 종로구\n커먼맨션"
+    assert seen_requests[0]["model"] == "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
+    assert seen_requests[0]["max_tokens"] == 512
+    message = seen_requests[0]["messages"][0]
+    assert message["role"] == "user"
+    assert message["content"][0]["type"] == "text"
+    assert message["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "https://scontent.cdninstagram.com/v/t51.29350-15/image.jpg"},
+    }
+
+
+def test_hf_ocr_client_retries_transient_failure() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, json={"error": "busy"})
+        return httpx.Response(200, json={"generated_text": "OCR text"})
+
+    client = HFOCRClient(
+        Settings(
+            hf_ocr_endpoint_url="https://example.test/v1/chat/completions",
+            hf_ocr_api_token="test-token",
+            hf_ocr_max_attempts=2,
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert _run(client.extract_text_from_image_url("https://example.test/image.jpg")) == "OCR text"
+    assert calls == 2
+
+
+def test_hf_ocr_client_raises_when_endpoint_is_missing() -> None:
+    client = HFOCRClient(
+        Settings(
+            hf_ocr_endpoint_url="",
+            hf_ocr_api_token="test-token",
+            hf_extraction_endpoint_url="",
+            hf_extraction_api_token="",
+        )
+    )
+
+    with pytest.raises(HFOCRError):
+        _run(client.extract_text_from_image_url("https://example.test/image.jpg"))
+
+
+def test_hf_ocr_client_falls_back_to_extraction_hf_router_settings() -> None:
+    seen_urls: list[str] = []
+    seen_auth: list[str | None] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(request.url))
+        seen_auth.append(request.headers.get("Authorization"))
+        return httpx.Response(200, json={"generated_text": "fallback OCR"})
+
+    client = HFOCRClient(
+        Settings(
+            hf_ocr_endpoint_url="",
+            hf_ocr_api_token="",
+            hf_extraction_endpoint_url="https://example.test/v1/chat/completions",
+            hf_extraction_api_token="fallback-token",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert _run(client.extract_text_from_image_url("https://example.test/image.jpg")) == "fallback OCR"
+    assert seen_urls == ["https://example.test/v1/chat/completions"]
+    assert seen_auth == ["Bearer fallback-token"]
