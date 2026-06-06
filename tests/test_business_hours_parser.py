@@ -255,6 +255,56 @@ def test_kakao_place_parser_includes_closed_day_rows() -> None:
     assert result.raw_text == "목(5/7) 10:30 ~ 21:30\n일(5/10) 휴무일\n월(5/11) 10:30 ~ 21:30"
 
 
+def test_kakao_place_parser_includes_named_holiday_closed_rows() -> None:
+    html = """
+    <div class="detail_info info_operation">
+      <div class="row_detail">
+        <span class="tit_detail emph_point">휴무일</span>
+        <span class="txt_detail add_mdot">월 11:30 오픈</span>
+        <div class="fold_detail">
+          <div class="line_fold"><span class="tit_fold emph_point3">토(6/6)</span><div class="detail_fold"><span class="txt_detail emph_point">현충일 휴무</span></div></div>
+          <div class="line_fold"><span class="tit_fold">일(6/7)</span><div class="detail_fold"><span class="txt_detail emph_point">휴무일</span></div></div>
+          <div class="line_fold bar_top">
+            <span class="tit_fold">월(6/8)</span>
+            <div class="detail_fold">
+              <span class="txt_detail">11:30 ~ 21:00</span>
+              <span class="txt_detail">15:00 ~ 17:00 브레이크타임</span>
+              <span class="txt_detail">20:20 라스트오더</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+
+    result = parse_kakao_place_business_hours_html(html)
+
+    assert result.status == BusinessHoursFetchStatus.SUCCEEDED
+    assert result.business_hours == {
+        "daily_hours": [
+            {"day": "토", "date": "6/6", "raw": "현충일 휴무", "type": "현충일 휴무"},
+            {"day": "일", "date": "6/7", "raw": "휴무일", "type": "휴무일"},
+            {
+                "day": "월",
+                "date": "6/8",
+                "raw": "11:30 ~ 21:00",
+                "open": "11:30",
+                "close": "21:00",
+                "break_time": {
+                    "raw": "15:00 ~ 17:00 브레이크타임",
+                    "open": "15:00",
+                    "close": "17:00",
+                },
+                "last_order": {
+                    "raw": "20:20 라스트오더",
+                    "time": "20:20",
+                },
+            },
+        ]
+    }
+    assert result.raw_text == "토(6/6) 현충일 휴무\n일(6/7) 휴무일\n월(6/8) 11:30 ~ 21:00"
+
+
 def test_kakao_place_parser_extracts_last_order_from_second_detail_text() -> None:
     html = """
     <div class="detail_info info_operation">
