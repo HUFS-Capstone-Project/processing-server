@@ -30,7 +30,8 @@ TIME_RANGE_RE = re.compile(
     r"^(?P<open>\d{1,2}:\d{2})\s*(?:~|-)\s*(?P<close>\d{1,2}:\d{2})$"
 )
 SPECIAL_HOURS_RE = re.compile(
-    r"^(?P<value>\uD734\uBB34|\uD734\uBB34\uC77C|\uC815\uAE30\uD734\uBB34|24\uC2DC\uAC04|\uC5F0\uC911\uBB34\uD734)$"
+    r"^(?P<value>(?:[\uAC00-\uD7A3A-Za-z0-9()/·.\s]+\s+)?"
+    r"(?:\uD734\uBB34|\uD734\uBB34\uC77C)|\uC815\uAE30\uD734\uBB34|24\uC2DC\uAC04|\uC5F0\uC911\uBB34\uD734)$"
 )
 BREAK_TIME_RE = re.compile(
     r"^(?P<open>\d{1,2}:\d{2})\s*(?:~|-)\s*(?P<close>\d{1,2}:\d{2})\s*\uBE0C\uB808\uC774\uD06C\uD0C0\uC784$"
