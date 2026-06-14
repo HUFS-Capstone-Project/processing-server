@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.config import Settings
 from app.infra.queue.redis_queue import RedisJobQueue
 
 
@@ -125,6 +126,34 @@ def test_dequeue_moves_ready_to_processing_and_ack_removes() -> None:
 
     _run(queue.ack(job_id))
     assert redis.lists["q:processing"] == []
+
+
+def test_from_settings_configures_redis_timeouts(monkeypatch) -> None:
+    calls = {}
+
+    def fake_from_url(url, **kwargs):
+        calls["url"] = url
+        calls["kwargs"] = kwargs
+        return FakeRedis()
+
+    monkeypatch.setattr("app.infra.queue.redis_queue.Redis.from_url", fake_from_url)
+
+    RedisJobQueue.from_settings(
+        Settings(
+            queue_redis_url="redis://queue.example:6379/0",
+            queue_pop_timeout_seconds=5,
+            queue_redis_socket_timeout_margin_seconds=10,
+        )
+    )
+
+    assert calls["url"] == "redis://queue.example:6379/0"
+    assert calls["kwargs"] == {
+        "decode_responses": True,
+        "socket_connect_timeout": 5.0,
+        "socket_timeout": 15.0,
+        "health_check_interval": 30,
+        "retry_on_timeout": True,
+    }
 
 
 def test_dequeue_nowait_moves_ready_to_processing_without_blocking() -> None:

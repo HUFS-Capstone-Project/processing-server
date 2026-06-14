@@ -6,6 +6,8 @@ import math
 import statistics
 import time
 
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
 from app.core.config import get_settings
 from app.infra.db import JobRepository, create_db_pool
 from app.infra.kakao import KakaoLocalClient
@@ -160,7 +162,12 @@ async def run_worker() -> None:
                 except Exception:
                     logger.warning("worker recovery sweep failed", exc_info=True)
 
-                job_id = await queue.dequeue(settings.queue_pop_timeout_seconds)
+                try:
+                    job_id = await queue.dequeue(settings.queue_pop_timeout_seconds)
+                except RedisTimeoutError:
+                    logger.warning("redis dequeue timeout; retrying")
+                    await asyncio.sleep(settings.worker_idle_sleep_seconds)
+                    continue
                 if not job_id:
                     await asyncio.sleep(settings.worker_idle_sleep_seconds)
                     continue

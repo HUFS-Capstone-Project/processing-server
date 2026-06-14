@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     db_command_timeout_seconds: int = 30
 
     queue_redis_url: str = "redis://localhost:6379/0"
+    queue_redis_socket_connect_timeout_seconds: float = 5.0
+    queue_redis_socket_timeout_margin_seconds: float = 10.0
+    queue_redis_health_check_interval_seconds: int = 30
+    queue_redis_retry_on_timeout: bool = True
     queue_namespace: str = "processing:jobs"
     queue_pop_timeout_seconds: int = 5
     queue_promote_batch_size: int = 50
@@ -183,6 +187,13 @@ class Settings(BaseSettings):
     @property
     def queue_processing_key(self) -> str:
         return f"{self.queue_namespace}:processing"
+
+    def queue_redis_socket_timeout_seconds(self, pop_timeout_seconds: int) -> float:
+        return max(
+            1.0,
+            float(max(0, pop_timeout_seconds))
+            + max(0.0, float(self.queue_redis_socket_timeout_margin_seconds)),
+        )
 
     @property
     def business_hours_queue_ready_key(self) -> str:

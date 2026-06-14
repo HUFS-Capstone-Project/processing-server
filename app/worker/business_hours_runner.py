@@ -5,6 +5,8 @@ import logging
 from typing import Protocol
 from uuid import UUID
 
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
 from app.core.config import get_settings
 from app.infra.db import BusinessHoursRepository, create_db_pool
 from app.infra.queue import RedisJobQueue
@@ -92,7 +94,13 @@ class BusinessHoursWorkerRunner:
         capacity = self._concurrency - len(self._running)
         for index in range(capacity):
             timeout = self._pop_timeout_seconds if not self._running and index == 0 else 0
-            job_id = await self._queue.dequeue(timeout)
+            try:
+                job_id = await self._queue.dequeue(timeout)
+            except RedisTimeoutError:
+                logger.warning("business hours redis dequeue timeout; retrying")
+                if not self._running:
+                    await asyncio.sleep(self._idle_sleep_seconds)
+                break
             if not job_id:
                 if not self._running:
                     await asyncio.sleep(self._idle_sleep_seconds)

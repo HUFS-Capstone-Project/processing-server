@@ -29,7 +29,10 @@ class RedisJobQueue:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "RedisJobQueue":
-        client = Redis.from_url(settings.queue_redis_url, decode_responses=True)
+        client = cls._client_from_settings(
+            settings,
+            pop_timeout_seconds=settings.queue_pop_timeout_seconds,
+        )
         return cls(
             client,
             ready_key=settings.queue_ready_key,
@@ -40,13 +43,27 @@ class RedisJobQueue:
 
     @classmethod
     def from_business_hours_settings(cls, settings: Settings) -> "RedisJobQueue":
-        client = Redis.from_url(settings.queue_redis_url, decode_responses=True)
+        client = cls._client_from_settings(
+            settings,
+            pop_timeout_seconds=settings.business_hours_queue_pop_timeout_seconds,
+        )
         return cls(
             client,
             ready_key=settings.business_hours_queue_ready_key,
             delayed_key=settings.business_hours_queue_delayed_key,
             processing_key=settings.business_hours_queue_processing_key,
             instagram_cooldown_key=settings.instagram_cooldown_key,
+        )
+
+    @classmethod
+    def _client_from_settings(cls, settings: Settings, *, pop_timeout_seconds: int) -> Redis:
+        return Redis.from_url(
+            settings.queue_redis_url,
+            decode_responses=True,
+            socket_connect_timeout=settings.queue_redis_socket_connect_timeout_seconds,
+            socket_timeout=settings.queue_redis_socket_timeout_seconds(pop_timeout_seconds),
+            health_check_interval=settings.queue_redis_health_check_interval_seconds,
+            retry_on_timeout=settings.queue_redis_retry_on_timeout,
         )
 
     @property

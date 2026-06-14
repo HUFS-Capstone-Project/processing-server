@@ -4,6 +4,7 @@ import asyncio
 from uuid import UUID, uuid4
 
 import pytest
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.worker.business_hours_processor import BusinessHoursProcessOutcome
 from app.worker.business_hours_runner import BusinessHoursWorkerRunner
@@ -42,6 +43,11 @@ class FakeBusinessHoursQueue:
     async def promote_due_jobs(self, batch_size: int) -> int:
         self.promote_calls += 1
         return 0
+
+
+class TimeoutBusinessHoursQueue(FakeBusinessHoursQueue):
+    async def dequeue(self, timeout_seconds: int) -> UUID | None:
+        raise RedisTimeoutError("Timeout reading from Redis")
 
 
 class BlockingBusinessHoursWorker:
@@ -153,5 +159,26 @@ def test_business_hours_runner_runs_db_and_queue_stale_recovery() -> None:
         assert repository.recover_calls == 1
         assert queue.recover_calls == 1
         assert queue.promote_calls == 1
+
+    _run(scenario())
+
+
+def test_business_hours_runner_retries_redis_dequeue_timeout() -> None:
+    async def scenario():
+        queue = TimeoutBusinessHoursQueue([])
+        worker = BlockingBusinessHoursWorker()
+        runner = BusinessHoursWorkerRunner(
+            queue=queue,
+            worker=worker,
+            concurrency=1,
+            pop_timeout_seconds=5,
+            idle_sleep_seconds=0,
+            stale_timeout_seconds=60,
+            promote_batch_size=10,
+        )
+
+        await runner.run_once()
+
+        assert worker.started == []
 
     _run(scenario())
