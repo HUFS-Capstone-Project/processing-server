@@ -315,6 +315,35 @@ def test_link_stats_extractor_failure_returns_unavailable_stats() -> None:
 def test_instagram_extractor_uses_public_playwright_wrapper(monkeypatch) -> None:
     calls: list[tuple[str, Settings]] = []
 
+    async def fake_http_meta(url: str, settings: Settings):
+        from app.services.crawler.instagram_http_meta import (
+            InstagramHttpMetaFetchResult,
+            InstagramHttpMetaResult,
+        )
+
+        result = InstagramHttpMetaResult(
+            url=url,
+            ua_type="facebookexternalhit",
+            status_code=200,
+            final_url=url,
+            title="Instagram",
+            og_title="",
+            og_description="",
+            og_image="",
+            og_url="",
+            description="",
+            cleaned_description="",
+            html_length=0,
+            elapsed_ms=1,
+            login_gate=True,
+            challenge=False,
+            rate_limited=False,
+            generic_instagram_page=False,
+            useful=False,
+            failure_reason="login_gate",
+        )
+        return InstagramHttpMetaFetchResult(selected=result, attempts=[result])
+
     async def fake_fetch(url: str, settings: Settings):
         calls.append((url, settings))
         from app.services.crawler.playwright_service import InstagramFetchResult
@@ -341,6 +370,10 @@ def test_instagram_extractor_uses_public_playwright_wrapper(monkeypatch) -> None
         )
 
     monkeypatch.setattr(
+        "app.services.crawler.extractors.instagram.fetch_instagram_http_meta",
+        fake_http_meta,
+    )
+    monkeypatch.setattr(
         "app.services.crawler.extractors.instagram.fetch_instagram_media_result",
         fake_fetch,
     )
@@ -357,6 +390,157 @@ def test_instagram_extractor_uses_public_playwright_wrapper(monkeypatch) -> None
     assert content.raw_metadata["response_status"] == 200
     assert content.raw_metadata["final_url"] == "https://www.instagram.com/p/abc/"
     assert "caption" not in content.raw_metadata
+
+
+def test_instagram_extractor_uses_http_meta_without_playwright(monkeypatch) -> None:
+    async def fake_http_meta(url: str, settings: Settings):
+        from app.services.crawler.instagram_http_meta import (
+            InstagramHttpMetaFetchResult,
+            InstagramHttpMetaResult,
+        )
+
+        result = InstagramHttpMetaResult(
+            url=url,
+            ua_type="facebookexternalhit",
+            status_code=200,
+            final_url=url,
+            title="Instagram",
+            og_title='Cafe on Instagram: "raw"',
+            og_description='6,408 likes, 93 comments - limeunzzo on April 17, 2026: "Seoul cafe address".',
+            og_image="https://example.com/image.jpg",
+            og_url=url,
+            description='6,408 likes, 93 comments - limeunzzo on April 17, 2026: "Seoul cafe address".',
+            cleaned_description="Seoul cafe address",
+            html_length=100,
+            elapsed_ms=1,
+            login_gate=False,
+            challenge=False,
+            rate_limited=False,
+            generic_instagram_page=False,
+            useful=True,
+        )
+        return InstagramHttpMetaFetchResult(selected=result, attempts=[result])
+
+    async def fail_playwright(url: str, settings: Settings):
+        raise AssertionError("Playwright should not run after useful HTTP meta")
+
+    monkeypatch.setattr(
+        "app.services.crawler.extractors.instagram.fetch_instagram_http_meta",
+        fake_http_meta,
+    )
+    monkeypatch.setattr(
+        "app.services.crawler.extractors.instagram.fetch_instagram_media_result",
+        fail_playwright,
+    )
+
+    content = _run(InstagramContentExtractor(Settings()).extract("https://www.instagram.com/reel/abc/"))
+
+    assert content.source_type == SourceType.INSTAGRAM
+    assert content.extraction_method == ExtractionMethod.INSTAGRAM_OG_META
+    assert content.content_text == "Seoul cafe address"
+    assert content.raw_metadata["extraction_source"] == "instagram_http_meta"
+    assert content.raw_metadata["response_status"] == 200
+    assert content.raw_metadata["likes"] == 6408
+    assert content.raw_metadata["comments"] == 93
+    assert content.raw_metadata["posted_at"] == "April 17, 2026"
+    assert content.raw_metadata["instagram"]["fallback_to_playwright"] is False
+
+
+def test_instagram_extractor_skips_playwright_on_http_429(monkeypatch) -> None:
+    async def fake_http_meta(url: str, settings: Settings):
+        from app.services.crawler.instagram_http_meta import (
+            InstagramHttpMetaFetchResult,
+            InstagramHttpMetaResult,
+        )
+
+        result = InstagramHttpMetaResult(
+            url=url,
+            ua_type="facebookexternalhit",
+            status_code=429,
+            final_url=url,
+            title="",
+            og_title="",
+            og_description="",
+            og_image="",
+            og_url="",
+            description="",
+            cleaned_description="",
+            html_length=0,
+            elapsed_ms=1,
+            login_gate=False,
+            challenge=False,
+            rate_limited=True,
+            generic_instagram_page=False,
+            useful=False,
+            failure_reason="rate_limited",
+        )
+        return InstagramHttpMetaFetchResult(selected=result, attempts=[result])
+
+    async def fail_playwright(url: str, settings: Settings):
+        raise AssertionError("Playwright should not run after HTTP 429")
+
+    monkeypatch.setattr(
+        "app.services.crawler.extractors.instagram.fetch_instagram_http_meta",
+        fake_http_meta,
+    )
+    monkeypatch.setattr(
+        "app.services.crawler.extractors.instagram.fetch_instagram_media_result",
+        fail_playwright,
+    )
+
+    content = _run(InstagramContentExtractor(Settings()).extract("https://www.instagram.com/reel/abc/"))
+
+    assert content.content_text == ""
+    assert content.raw_metadata["response_status"] == 429
+    assert content.raw_metadata["instagram"]["rate_limited"] is True
+
+
+def test_instagram_extractor_skips_playwright_on_http_challenge(monkeypatch) -> None:
+    async def fake_http_meta(url: str, settings: Settings):
+        from app.services.crawler.instagram_http_meta import (
+            InstagramHttpMetaFetchResult,
+            InstagramHttpMetaResult,
+        )
+
+        result = InstagramHttpMetaResult(
+            url=url,
+            ua_type="facebookexternalhit",
+            status_code=200,
+            final_url="https://www.instagram.com/challenge/",
+            title="",
+            og_title="",
+            og_description="Seoul cafe address",
+            og_image="",
+            og_url="",
+            description="Seoul cafe address",
+            cleaned_description="Seoul cafe address",
+            html_length=100,
+            elapsed_ms=1,
+            login_gate=False,
+            challenge=True,
+            rate_limited=False,
+            generic_instagram_page=False,
+            useful=False,
+            failure_reason="challenge",
+        )
+        return InstagramHttpMetaFetchResult(selected=result, attempts=[result])
+
+    async def fail_playwright(url: str, settings: Settings):
+        raise AssertionError("Playwright should not run after challenge")
+
+    monkeypatch.setattr(
+        "app.services.crawler.extractors.instagram.fetch_instagram_http_meta",
+        fake_http_meta,
+    )
+    monkeypatch.setattr(
+        "app.services.crawler.extractors.instagram.fetch_instagram_media_result",
+        fail_playwright,
+    )
+
+    content = _run(InstagramContentExtractor(Settings()).extract("https://www.instagram.com/reel/abc/"))
+
+    assert content.raw_metadata["instagram"]["challenge"] is True
+    assert content.raw_metadata["instagram"]["failure_reason"] == "challenge"
 
 
 def test_instagram_link_stats_extracts_existing_parser_fields() -> None:

@@ -10,7 +10,7 @@ from app.domain.url_contract import (
     instagram_media_type,
     is_instagram_media_url,
 )
-from app.services.crawler.instagram_reel_parse import parse_instagram_reel_meta
+from app.services.crawler.instagram_reel_parse import parse_instagram_meta_description
 from app.services.crawler.extractors import ContentExtractorRegistry
 from app.services.crawler.extractors.link_stats_registry import LinkStatsExtractorRegistry
 
@@ -28,7 +28,7 @@ async def crawl_and_parse(url: str, settings: Settings) -> CrawlArtifact:
     parsed_metadata = None
 
     if media_type and clean_text:
-        parsed_metadata = parse_instagram_reel_meta(clean_text)
+        parsed_metadata = parse_instagram_meta_description(clean_text)
         if parsed_metadata:
             content_text = parsed_metadata.get("caption") or clean_text
 

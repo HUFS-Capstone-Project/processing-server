@@ -53,7 +53,10 @@ def canonical_generic_url(original_url: str) -> str:
     return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, query, ""))
 
 
-def instagram_media_type(url: str) -> Literal["reel", "post"] | None:
+InstagramMediaType = Literal["reel", "post", "tv"]
+
+
+def instagram_media_type(url: str) -> InstagramMediaType | None:
     media = _instagram_media_parts(url)
     return media[0] if media else None
 
@@ -110,7 +113,7 @@ def canonical_instagram_media_url(url: str) -> str | None:
         return None
 
     media_type, shortcode = media
-    path_type = "reel" if media_type == "reel" else "p"
+    path_type = "reel" if media_type == "reel" else "p" if media_type == "post" else "tv"
     return f"https://www.instagram.com/{path_type}/{shortcode}/"
 
 
@@ -125,7 +128,7 @@ def _instagram_path_parts(url: str) -> list[str] | None:
         return None
 
 
-def _instagram_media_parts(url: str) -> tuple[Literal["reel", "post"], str] | None:
+def _instagram_media_parts(url: str) -> tuple[InstagramMediaType, str] | None:
     parts = _instagram_path_parts(url)
     if not parts or len(parts) < 2:
         return None
@@ -138,4 +141,6 @@ def _instagram_media_parts(url: str) -> tuple[Literal["reel", "post"], str] | No
         return "reel", shortcode
     if media_path == "p":
         return "post", shortcode
+    if media_path == "tv":
+        return "tv", shortcode
     return None

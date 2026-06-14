@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     instagram_locale: str = "ko-KR"
     instagram_navigation_timeout: int = 12
     instagram_og_wait_timeout_ms: int = 3000
+    instagram_http_meta_timeout_seconds: int = 10
     instagram_block_resource_types: str = "image,font,media"
     instagram_image_fetch_timeout_ms: int = 8000
     instagram_image_fetch_max_images: int = 10

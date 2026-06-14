@@ -351,13 +351,22 @@ class JobProcessor:
     def _is_empty_instagram_crawl(crawl_artifact: CrawlArtifact) -> bool:
         instagram_metadata = JobProcessor._instagram_metadata(crawl_artifact)
         raw_metadata = crawl_artifact.raw_metadata or {}
+        blocked = any(
+            bool(instagram_metadata.get(key))
+            for key in ("login_gate", "challenge", "generic_instagram_page")
+        )
         return (
             crawl_artifact.source_type == "INSTAGRAM"
             and raw_metadata.get("response_status") == 200
             and not (crawl_artifact.content_text or "").strip()
-            and str(instagram_metadata.get("og_source") or "none").strip().lower() == "none"
-            and JobProcessor._safe_int(instagram_metadata.get("og_meta_count")) == 0
-            and JobProcessor._safe_int(raw_metadata.get("body_text_len")) == 0
+            and (
+                blocked
+                or (
+                    str(instagram_metadata.get("og_source") or "none").strip().lower() == "none"
+                    and JobProcessor._safe_int(instagram_metadata.get("og_meta_count")) == 0
+                    and JobProcessor._safe_int(raw_metadata.get("body_text_len")) == 0
+                )
+            )
         )
 
     @staticmethod

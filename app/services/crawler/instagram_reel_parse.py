@@ -1,4 +1,4 @@
-"""Parse Instagram OG meta string into likes/comments/user/date/caption."""
+"""Parse Instagram OG meta description into likes/comments/user/date/caption."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import re
 from typing import TypedDict
 
 
-class ParsedInstagramReelMeta(TypedDict):
+class ParsedInstagramMetaDescription(TypedDict):
     likes: int
     comments: int
     username: str
@@ -32,18 +32,20 @@ def _parse_count(s: str) -> int:
 
 _COUNT = r"(?:\d+(?:\.\d+)?[KkMmBb]|\d{1,3}(?:,\d{3})+|\d+)"
 
+_USER_DATE = r"(.+?)(?:\s+-\s+|\s+on\s+)([^:]+)"
+
 _RE_QUOTED = re.compile(
-    rf"^({_COUNT})\s+likes?,\s*({_COUNT})\s+comments?\s*-\s*(.+?)\s*-\s*([^:]+):\s*\"(.*)\"\s*\.?\s*$",
+    rf"^({_COUNT})\s+likes?,\s*({_COUNT})\s+comments?\s*-\s*{_USER_DATE}:\s*\"(.*)\"\s*\.?\s*$",
     re.DOTALL | re.IGNORECASE,
 )
 
 _RE_UNQUOTED = re.compile(
-    rf"^({_COUNT})\s+likes?,\s*({_COUNT})\s+comments?\s*-\s*(.+?)\s*-\s*([^:]+):\s*(.+)\s*$",
+    rf"^({_COUNT})\s+likes?,\s*({_COUNT})\s+comments?\s*-\s*{_USER_DATE}:\s*(.+)\s*$",
     re.DOTALL | re.IGNORECASE,
 )
 
 
-def parse_instagram_reel_meta(text: str) -> ParsedInstagramReelMeta | None:
+def parse_instagram_meta_description(text: str) -> ParsedInstagramMetaDescription | None:
     raw = (text or "").strip()
     if not raw:
         return None
@@ -77,3 +79,7 @@ def parse_instagram_reel_meta(text: str) -> ParsedInstagramReelMeta | None:
         }
 
     return None
+
+
+def parse_instagram_reel_meta(text: str) -> ParsedInstagramMetaDescription | None:
+    return parse_instagram_meta_description(text)

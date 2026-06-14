@@ -1,6 +1,9 @@
-"""Regression tests for parse_instagram_reel_meta."""
+"""Regression tests for Instagram OG meta description parsing."""
 
-from app.services.crawler.instagram_reel_parse import parse_instagram_reel_meta
+from app.services.crawler.instagram_reel_parse import (
+    parse_instagram_meta_description,
+    parse_instagram_reel_meta,
+)
 
 
 def test_15k_likes_and_plain_comments() -> None:
@@ -48,6 +51,18 @@ def test_multiline_caption_with_hashtags_and_emoji() -> None:
     assert parsed["likes"] == 99
     assert parsed["comments"] == 5
     assert "#brunch" in parsed["caption"]
+
+
+def test_username_on_date_format() -> None:
+    text = '6,408 likes, 93 comments - limeunzzo on April 17, 2026: "Seoul cafe address".'
+    parsed = parse_instagram_meta_description(text)
+
+    assert parsed is not None
+    assert parsed["likes"] == 6408
+    assert parsed["comments"] == 93
+    assert parsed["username"] == "limeunzzo"
+    assert parsed["posted_at"] == "April 17, 2026"
+    assert parsed["caption"] == "Seoul cafe address"
 
 
 def test_unparsed_returns_none() -> None:
