@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from app.services.crawler.youtube import canonical_youtube_video_url
 
@@ -41,6 +41,7 @@ def crawl_url_for(original_url: str) -> str:
     return (
         canonical_instagram_media_url(original_url)
         or canonical_youtube_video_url(original_url)
+        or canonical_naver_blog_url(original_url)
         or (original_url or "").strip()
     )
 
@@ -83,14 +84,22 @@ def canonical_naver_blog_url(url: str) -> str | None:
             return None
 
         parts = [part for part in (parsed.path or "").split("/") if part]
-        if len(parts) != 2:
-            return None
+        if len(parts) == 2:
+            blog_id, log_no = parts[0].strip(), parts[1].strip()
+            if blog_id and log_no.isdigit():
+                return f"https://blog.naver.com/{blog_id}/{log_no}"
 
-        blog_id, log_no = parts[0].strip(), parts[1].strip()
-        if not blog_id or not log_no.isdigit():
-            return None
+        if parts and parts[-1].lower() == "postview.naver":
+            query = parse_qs(parsed.query)
+            blog_id = (query.get("blogId") or [None])[0]
+            log_no = (query.get("logNo") or [None])[0]
+            if blog_id and log_no:
+                blog_id = str(blog_id).strip()
+                log_no = str(log_no).strip()
+                if blog_id and log_no.isdigit():
+                    return f"https://blog.naver.com/{blog_id}/{log_no}"
 
-        return f"https://blog.naver.com/{blog_id}/{log_no}"
+        return None
     except Exception:
         return None
 

@@ -53,6 +53,22 @@ def test_canonical_naver_blog_url_strips_query_and_fragment() -> None:
     assert canonical_url_for(url) == NAVER_BLOG_CANONICAL
 
 
+def test_canonical_naver_blog_url_normalizes_post_view_query_url() -> None:
+    mobile_share_url = (
+        "https://m.blog.naver.com/PostView.naver"
+        "?blogId=masitneungeojoah&logNo=224156749966&proxyReferer=&noTrackingCode=true"
+    )
+    desktop_post_view_url = (
+        "https://blog.naver.com/PostView.naver?blogId=fkawnldhkd&logNo=224279607194"
+    )
+    expected_mobile = "https://blog.naver.com/masitneungeojoah/224156749966"
+
+    assert canonical_naver_blog_url(mobile_share_url) == expected_mobile
+    assert canonical_naver_blog_url(desktop_post_view_url) == NAVER_BLOG_CANONICAL
+    assert canonical_url_for(mobile_share_url) == expected_mobile
+    assert crawl_url_for(mobile_share_url) == expected_mobile
+
+
 def test_canonical_naver_blog_url_falls_back_to_generic_for_non_naver_blog_urls() -> None:
     url = "HTTPS://Example.com/Post/?b=2&a=1#fragment"
 

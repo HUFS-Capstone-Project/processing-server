@@ -77,6 +77,18 @@ def test_registry_selects_naver_blog_extractor_for_naver_blog_url() -> None:
     assert isinstance(extractor, NaverBlogContentExtractor)
 
 
+def test_registry_selects_naver_blog_extractor_for_post_view_share_url() -> None:
+    registry = ContentExtractorRegistry(Settings())
+    share_url = (
+        "https://m.blog.naver.com/PostView.naver"
+        "?blogId=masitneungeojoah&logNo=224156749966&proxyReferer=&noTrackingCode=true"
+    )
+
+    extractor = registry.select(share_url)
+
+    assert isinstance(extractor, NaverBlogContentExtractor)
+
+
 def test_registry_rejects_unsupported_naver_blog_host_url() -> None:
     registry = ContentExtractorRegistry(Settings())
 
