@@ -46,6 +46,7 @@ def test_openapi_job_result_documents_retryable_field() -> None:
     schema = _schema("JobResultResponse")
 
     assert "retryable" in schema["properties"]
+    assert "cooldown_seconds" in schema["properties"]
     assert schema["properties"]["retryable"]["default"] is False
     assert "INSTAGRAM_RATE_LIMITED" in schema["properties"]["error_code"]["description"]
     assert "UNSUPPORTED_PLATFORM_URL" in schema["properties"]["error_code"]["description"]

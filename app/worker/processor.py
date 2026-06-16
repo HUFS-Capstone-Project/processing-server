@@ -186,6 +186,10 @@ class JobProcessor:
                     crawl_artifact=crawl_artifact,
                     cooldown_seconds=cooldown_seconds,
                 )
+                self._record_instagram_cooldown(
+                    crawl_artifact,
+                    cooldown_seconds=cooldown_seconds,
+                )
                 await self._persist_outputs(
                     job=job,
                     crawl_artifact=crawl_artifact,
@@ -420,6 +424,19 @@ class JobProcessor:
             instagram_metadata.get("og_meta_count"),
             cooldown_seconds,
         )
+
+    @staticmethod
+    def _record_instagram_cooldown(
+        crawl_artifact: CrawlArtifact,
+        *,
+        cooldown_seconds: int,
+    ) -> None:
+        raw_metadata = dict(crawl_artifact.raw_metadata or {})
+        instagram_metadata = dict(raw_metadata.get("instagram") or {})
+        instagram_metadata["cooldown_seconds"] = cooldown_seconds
+        raw_metadata["instagram"] = instagram_metadata
+        raw_metadata["cooldown_seconds"] = cooldown_seconds
+        crawl_artifact.raw_metadata = raw_metadata
 
     @staticmethod
     def _instagram_metadata(crawl_artifact: CrawlArtifact) -> dict:

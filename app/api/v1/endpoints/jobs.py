@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -28,6 +30,8 @@ from app.schemas.jobs import (
 )
 
 router = APIRouter()
+
+_COOLDOWN_SECONDS_PATTERN = re.compile(r"(?:Retry after|for)\s+(\d+)\s+seconds", re.IGNORECASE)
 
 _UNAUTHORIZED_RESPONSE = {
     status.HTTP_401_UNAUTHORIZED: {
@@ -197,6 +201,7 @@ async def get_job_result(
         error_code=job.error_code,
         error_message=job.error_message,
         retryable=_is_retryable_failure(job),
+        cooldown_seconds=_cooldown_seconds(job, content),
     )
 
 
@@ -278,6 +283,57 @@ def _link_stats_response(link_stats) -> LinkStatsResponse | None:
 
 def _is_retryable_failure(job) -> bool:
     return job.status == JobStatus.FAILED and job.error_code == INSTAGRAM_RATE_LIMITED_ERROR_CODE
+
+
+def _cooldown_seconds(job, content) -> int | None:
+    if not _is_retryable_failure(job):
+        return None
+
+    duration = _cooldown_duration_seconds(content)
+    if duration is None:
+        duration = _cooldown_duration_from_message(job.error_message)
+    if duration is None:
+        return None
+
+    anchor = job.failed_at or job.updated_at
+    if anchor is None:
+        return max(0, duration)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+    elapsed_seconds = int((datetime.now(timezone.utc) - anchor).total_seconds())
+    return max(0, duration - max(0, elapsed_seconds))
+
+
+def _cooldown_duration_seconds(content) -> int | None:
+    raw_metadata = getattr(content, "raw_metadata", None)
+    if not isinstance(raw_metadata, dict):
+        return None
+
+    direct = _positive_int(raw_metadata.get("cooldown_seconds"))
+    if direct is not None:
+        return direct
+
+    instagram_metadata = raw_metadata.get("instagram")
+    if isinstance(instagram_metadata, dict):
+        return _positive_int(instagram_metadata.get("cooldown_seconds"))
+    return None
+
+
+def _cooldown_duration_from_message(message: str | None) -> int | None:
+    if not message:
+        return None
+    match = _COOLDOWN_SECONDS_PATTERN.search(message)
+    if not match:
+        return None
+    return _positive_int(match.group(1))
+
+
+def _positive_int(value: object) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _content_debug_dict(content) -> dict[str, object] | None:

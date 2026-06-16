@@ -401,6 +401,8 @@ def test_processor_fails_instagram_429_without_retry_and_sets_cooldown(monkeypat
     assert cooldown.set_calls == [1800]
     assert repo.saved_content is not None
     assert repo.saved_content["raw_metadata"]["response_status"] == 429
+    assert repo.saved_content["raw_metadata"]["cooldown_seconds"] == 1800
+    assert repo.saved_content["raw_metadata"]["instagram"]["cooldown_seconds"] == 1800
     assert extractor.calls == []
 
 

@@ -101,6 +101,13 @@ class JobResultResponse(BaseModel):
             "Does not indicate worker auto-retry is in progress."
         ),
     )
+    cooldown_seconds: int | None = Field(
+        default=None,
+        description=(
+            "Remaining client cooldown in seconds when retryable=true and "
+            "error_code=INSTAGRAM_RATE_LIMITED."
+        ),
+    )
 
 
 class CrawledContentResponse(BaseModel):

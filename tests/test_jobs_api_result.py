@@ -242,6 +242,7 @@ def test_get_job_result_returns_public_contract_only() -> None:
         "error_code": None,
         "error_message": None,
         "retryable": False,
+        "cooldown_seconds": None,
     }
     assert "extraction_result" not in payload
     assert "place_candidates" not in payload
@@ -354,4 +355,49 @@ def test_get_job_result_marks_instagram_rate_limit_as_client_retryable() -> None
     )
 
     assert jobs_endpoint._is_retryable_failure(job) is True
+
+
+def test_get_job_result_includes_instagram_cooldown_seconds() -> None:
+    now = datetime.now(timezone.utc)
+    job_id = uuid4()
+    job = JobRecord(
+        job_id=job_id,
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/reel/example/",
+        canonical_url="https://www.instagram.com/reel/example/",
+        status=JobStatus.FAILED,
+        error_message="Instagram crawl returned HTTP 429. Global cooldown started for 1800 seconds.",
+        created_at=now,
+        updated_at=now,
+        failed_at=now,
+        error_code="INSTAGRAM_RATE_LIMITED",
+    )
+    result = JobResultRecord(
+        job_id=job_id,
+        extraction_result=None,
+        place_candidates=[],
+        resolved_places=[],
+        created_at=now,
+        updated_at=now,
+    )
+    content = CrawledContentRecord(
+        job_id=job_id,
+        crawl_url=job.canonical_url,
+        source_type="INSTAGRAM",
+        content_text="",
+        extraction_method="INSTAGRAM_OG_META",
+        raw_metadata={
+            "response_status": 429,
+            "instagram": {"cooldown_seconds": 1800},
+        },
+        created_at=now,
+        updated_at=now,
+    )
+
+    response = _client(job, result, content).get(f"/jobs/{job_id}/result", headers=_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["retryable"] is True
+    assert 0 < payload["cooldown_seconds"] <= 1800
 
