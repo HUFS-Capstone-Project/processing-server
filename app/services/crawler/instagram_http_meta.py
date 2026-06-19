@@ -33,14 +33,14 @@ USER_AGENT_CANDIDATES: tuple[tuple[str, str], ...] = (
 GENERIC_INSTAGRAM_PHRASES = (
     "create an account or log in",
     "log in to instagram",
-    "instagram\uc5d0\uc11c \uc0ac\uc9c4 \ubc0f \ub3d9\uc601\uc0c1 \ubcf4\uae30",
+    "instagram에서 사진 및 동영상 보기",
     "see instagram photos and videos",
     "instagram photos and videos",
     "sign up to see photos",
 )
 
 _WHITESPACE_RE = re.compile(r"\s+")
-_MEANINGFUL_RE = re.compile(r"[0-9A-Za-z\uac00-\ud7a3]")
+_MEANINGFUL_RE = re.compile(r"[0-9A-Za-z가-힣]")
 
 
 @dataclass(slots=True)

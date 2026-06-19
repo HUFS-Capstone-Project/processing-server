@@ -726,8 +726,8 @@ class JobProcessor:
         tokens = [token.strip(",") for token in re.split(r"\s+", raw) if token.strip(",")]
         hints = [raw]
 
-        district_suffixes = ("\uad6c", "\uad70")
-        locality_suffixes = ("\ub3d9", "\uc74d", "\uba74", "\ub9ac", "\uac00")
+        district_suffixes = ("구", "군")
+        locality_suffixes = ("동", "읍", "면", "리", "가")
 
         district_idx = next(
             (idx for idx, token in enumerate(tokens) if token.endswith(district_suffixes)),
@@ -765,10 +765,10 @@ class JobProcessor:
             return None
 
         for idx, token in enumerate(rest):
-            if token.endswith("\uae38"):
+            if token.endswith("길"):
                 return " ".join(prefix + [token])
-            if token.endswith("\ub85c"):
-                if idx + 1 < len(rest) and re.fullmatch(r"\d+\uae38", rest[idx + 1]):
+            if token.endswith("로"):
+                if idx + 1 < len(rest) and re.fullmatch(r"\d+길", rest[idx + 1]):
                     return " ".join(prefix + [f"{token}{rest[idx + 1]}"])
                 return " ".join(prefix + [token])
         return None

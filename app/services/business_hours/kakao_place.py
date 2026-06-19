@@ -22,21 +22,21 @@ UNIT_DEFAULT_SELECTOR = ".unit_default"
 FOLD_LINE_SELECTOR = ".fold_detail .line_fold"
 
 DAY_TEXT_RE = re.compile(
-    r"^(?P<day>[\uC6D4\uD654\uC218\uBAA9\uAE08\uD1A0\uC77C]|"
-    r"\uD3C9\uC77C|\uC8FC\uB9D0|\uACF5\uD734\uC77C)"
+    r"^(?P<day>[월화수목금토일]|"
+    r"평일|주말|공휴일)"
     r"(?:\((?P<date>[^)]+)\))?$"
 )
 TIME_RANGE_RE = re.compile(
     r"^(?P<open>\d{1,2}:\d{2})\s*(?:~|-)\s*(?P<close>\d{1,2}:\d{2})$"
 )
 SPECIAL_HOURS_RE = re.compile(
-    r"^(?P<value>(?:[\uAC00-\uD7A3A-Za-z0-9()/·.\s]+\s+)?"
-    r"(?:\uD734\uBB34|\uD734\uBB34\uC77C)|\uC815\uAE30\uD734\uBB34|24\uC2DC\uAC04|\uC5F0\uC911\uBB34\uD734)$"
+    r"^(?P<value>(?:[가-힣A-Za-z0-9()/·.\s]+\s+)?"
+    r"(?:휴무|휴무일)|정기휴무|24시간|연중무휴)$"
 )
 BREAK_TIME_RE = re.compile(
-    r"^(?P<open>\d{1,2}:\d{2})\s*(?:~|-)\s*(?P<close>\d{1,2}:\d{2})\s*\uBE0C\uB808\uC774\uD06C\uD0C0\uC784$"
+    r"^(?P<open>\d{1,2}:\d{2})\s*(?:~|-)\s*(?P<close>\d{1,2}:\d{2})\s*브레이크타임$"
 )
-LAST_ORDER_RE = re.compile(r"^(?P<time>\d{1,2}:\d{2})\s*\uB77C\uC2A4\uD2B8\uC624\uB354$")
+LAST_ORDER_RE = re.compile(r"^(?P<time>\d{1,2}:\d{2})\s*라스트오더$")
 
 
 class KakaoPlaceCrawlError(Exception):
@@ -420,7 +420,7 @@ def _extract_unit_default_with_operation_label(html_content: str) -> str | None:
     blocks = _extract_balanced_blocks(html_content, UNIT_DEFAULT_SELECTOR)
     for block in blocks:
         text = _html_to_text(block)
-        if "\uC601\uC5C5\uC815\uBCF4" in text:
+        if "영업정보" in text:
             return block
     return None
 
