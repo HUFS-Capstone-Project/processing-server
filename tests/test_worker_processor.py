@@ -49,6 +49,7 @@ class FakeRepository:
     def __init__(self, job: JobRecord) -> None:
         self._job = job
         self.saved_result: dict | None = None
+        self.saved_results: list[dict] = []
         self.saved_content: dict | None = None
         self.saved_link_stats: dict | None = None
         self.succeeded = False
@@ -62,6 +63,7 @@ class FakeRepository:
 
     async def upsert_job_result(self, **kwargs):
         self.saved_result = kwargs
+        self.saved_results.append(kwargs)
         return None
 
     async def upsert_crawled_content(self, **kwargs):
@@ -136,6 +138,30 @@ class FakeOCRClient:
     async def extract_texts_from_image_urls(self, image_urls: list[str]) -> list[str]:
         self.calls.append(image_urls)
         return self.texts
+
+
+class SequentialOCRClient:
+    def __init__(self, texts_by_call: list[list[str]]) -> None:
+        self.texts_by_call = list(texts_by_call)
+        self.calls: list[list[str]] = []
+
+    async def extract_texts_from_image_urls(self, image_urls: list[str]) -> list[str]:
+        self.calls.append(image_urls)
+        if not self.texts_by_call:
+            return []
+        return self.texts_by_call.pop(0)
+
+
+class FailingAfterFirstOCRClient:
+    def __init__(self, first_texts: list[str]) -> None:
+        self.first_texts = first_texts
+        self.calls: list[list[str]] = []
+
+    async def extract_texts_from_image_urls(self, image_urls: list[str]) -> list[str]:
+        self.calls.append(image_urls)
+        if len(self.calls) == 1:
+            return self.first_texts
+        raise RuntimeError("ocr rate limited")
 
 
 class FakeInstagramCooldownStore:
@@ -274,6 +300,28 @@ def _place_candidate(
         query=query,
         evidence_text=f"{query} 1-102 Sinmunro 2-ga",
         original_text=query,
+    )
+
+
+def _extraction_result_with_places(names: list[str]) -> ExtractionResult:
+    places = [
+        ExtractedPlace(
+            store_name=name,
+            address=f"서울 테스트구 {index}길",
+            store_name_evidence=name,
+            address_evidence=f"서울 테스트구 {index}길",
+            certainty=ExtractionCertainty.HIGH,
+        )
+        for index, name in enumerate(names, start=1)
+    ]
+    first = places[0] if places else None
+    return ExtractionResult(
+        store_name=first.store_name if first else None,
+        address=first.address if first else None,
+        store_name_evidence=first.store_name_evidence if first else None,
+        address_evidence=first.address_evidence if first else None,
+        certainty=first.certainty if first else ExtractionCertainty.LOW,
+        places=places,
     )
 
 
@@ -607,6 +655,7 @@ def test_processor_runs_instagram_image_ocr_fallback_when_caption_extraction_is_
         "ocr_text_count": 1,
         "image_fetch_timed_out": False,
         "image_fetch_error": None,
+        "batch_size": 5,
     }
     assert repo.saved_result is not None
     assert repo.saved_result["extraction_result"]["store_name"] == "OCR Cafe"
@@ -664,6 +713,233 @@ def test_processor_skips_instagram_image_ocr_fallback_when_caption_has_places(mo
     assert ocr.calls == []
     assert repo.saved_content is not None
     assert repo.saved_content["content_text"] == "Caption Cafe"
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_persists_instagram_ocr_batch_results_for_each_new_resolved_threshold(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    job = JobRecord(
+        job_id=uuid4(),
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/p/example/",
+        canonical_url="https://www.instagram.com/p/example/",
+        status=JobStatus.QUEUED,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    repo = FakeRepository(job)
+    batch_names = [
+        [f"Batch1 Place {index}" for index in range(1, 7)],
+        [f"Batch2 Place {index}" for index in range(1, 3)],
+        [f"Batch3 Place {index}" for index in range(1, 4)],
+        [f"Batch4 Place {index}" for index in range(1, 5)],
+    ]
+    all_names = [name for names in batch_names for name in names]
+    extractor = SequentialExtractionClient(
+        [None] + [_extraction_result_with_places(names) for names in batch_names]
+    )
+    ocr = SequentialOCRClient(
+        [[f"OCR text {batch_index}-{image_index}" for image_index in range(5)] for batch_index in range(1, 5)]
+    )
+    place_search = KeywordAwarePlaceSearchClient(
+        {
+            name: [
+                _place_candidate(
+                    kakao_place_id=str(index),
+                    place_name=name,
+                    query=name,
+                )
+            ]
+            for index, name in enumerate(all_names, start=1)
+        }
+    )
+    image_urls = [f"https://cdn.example/image{index}.jpg" for index in range(1, 21)]
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="맛집 모음",
+            media_type="post",
+            source_type="INSTAGRAM",
+            extraction_method="INSTAGRAM_OG_META",
+            raw_metadata={"instagram": {"og_source": "og:description"}},
+        )
+
+    async def fake_fetch_images(_url: str, _settings: Settings):
+        return SimpleNamespace(
+            image_urls=image_urls,
+            timed_out=False,
+            error=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+    monkeypatch.setattr("app.worker.processor.fetch_instagram_post_images", fake_fetch_images)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=Settings(),
+        extraction_client=extractor,
+        ocr_client=ocr,
+        place_search_client=place_search,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert [len(call) for call in ocr.calls] == [5, 5, 5, 5]
+    assert len(extractor.calls) == 5
+    assert [len(result["resolved_places"]) for result in repo.saved_results] == [6, 11, 15]
+    assert repo.saved_results[-1]["extraction_result"]["places"][0]["store_name"] == "Batch1 Place 1"
+    assert repo.saved_results[-1]["extraction_result"]["places"][-1]["store_name"] == "Batch4 Place 4"
+    assert repo.saved_content is not None
+    assert repo.saved_content["raw_metadata"]["instagram"]["ocr_fallback"]["batch_size"] == 5
+    assert repo.saved_content["raw_metadata"]["instagram"]["ocr_fallback"]["ocr_text_count"] == 20
+    assert repo.succeeded is True
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_waits_to_persist_instagram_ocr_result_until_new_resolved_threshold(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    job = JobRecord(
+        job_id=uuid4(),
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/p/example/",
+        canonical_url="https://www.instagram.com/p/example/",
+        status=JobStatus.QUEUED,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    repo = FakeRepository(job)
+    batch_names = [
+        ["First A", "First B"],
+        ["Second A", "Second B", "Second C", "Second D", "Second E"],
+    ]
+    all_names = [name for names in batch_names for name in names]
+    extractor = SequentialExtractionClient(
+        [None] + [_extraction_result_with_places(names) for names in batch_names]
+    )
+    ocr = SequentialOCRClient(
+        [[f"OCR text {batch_index}-{image_index}" for image_index in range(5)] for batch_index in range(1, 3)]
+    )
+    place_search = KeywordAwarePlaceSearchClient(
+        {
+            name: [
+                _place_candidate(
+                    kakao_place_id=str(index),
+                    place_name=name,
+                    query=name,
+                )
+            ]
+            for index, name in enumerate(all_names, start=1)
+        }
+    )
+    image_urls = [f"https://cdn.example/image{index}.jpg" for index in range(1, 11)]
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="맛집 모음",
+            media_type="post",
+            source_type="INSTAGRAM",
+            extraction_method="INSTAGRAM_OG_META",
+            raw_metadata={"instagram": {"og_source": "og:description"}},
+        )
+
+    async def fake_fetch_images(_url: str, _settings: Settings):
+        return SimpleNamespace(
+            image_urls=image_urls,
+            timed_out=False,
+            error=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+    monkeypatch.setattr("app.worker.processor.fetch_instagram_post_images", fake_fetch_images)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=Settings(),
+        extraction_client=extractor,
+        ocr_client=ocr,
+        place_search_client=place_search,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert [len(call) for call in ocr.calls] == [5, 5]
+    assert [len(result["resolved_places"]) for result in repo.saved_results] == [7, 7]
+    assert repo.saved_results[0]["resolved_places"][0]["place_name"] == "First A"
+    assert repo.succeeded is True
+
+
+@pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")
+def test_processor_keeps_accumulated_instagram_ocr_results_when_later_batch_fails(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    job = JobRecord(
+        job_id=uuid4(),
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/p/example/",
+        canonical_url="https://www.instagram.com/p/example/",
+        status=JobStatus.QUEUED,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    repo = FakeRepository(job)
+    names = [f"Batch1 Place {index}" for index in range(1, 7)]
+    extractor = SequentialExtractionClient([None, _extraction_result_with_places(names)])
+    ocr = FailingAfterFirstOCRClient([f"OCR text {index}" for index in range(1, 6)])
+    place_search = KeywordAwarePlaceSearchClient(
+        {
+            name: [
+                _place_candidate(
+                    kakao_place_id=str(index),
+                    place_name=name,
+                    query=name,
+                )
+            ]
+            for index, name in enumerate(names, start=1)
+        }
+    )
+    image_urls = [f"https://cdn.example/image{index}.jpg" for index in range(1, 11)]
+
+    async def fake_crawl(url: str, _settings: Settings) -> CrawlArtifact:
+        return CrawlArtifact(
+            url=url,
+            html=None,
+            content_text="맛집 모음",
+            media_type="post",
+            source_type="INSTAGRAM",
+            extraction_method="INSTAGRAM_OG_META",
+            raw_metadata={"instagram": {"og_source": "og:description"}},
+        )
+
+    async def fake_fetch_images(_url: str, _settings: Settings):
+        return SimpleNamespace(
+            image_urls=image_urls,
+            timed_out=False,
+            error=None,
+        )
+
+    monkeypatch.setattr("app.worker.processor.crawl_and_parse", fake_crawl)
+    monkeypatch.setattr("app.worker.processor.fetch_instagram_post_images", fake_fetch_images)
+
+    processor = JobProcessor(
+        repository=repo,
+        settings=Settings(),
+        extraction_client=extractor,
+        ocr_client=ocr,
+        place_search_client=place_search,
+    )
+
+    _run(processor.process_job(job.job_id))
+
+    assert [len(call) for call in ocr.calls] == [5, 5]
+    assert [len(result["resolved_places"]) for result in repo.saved_results] == [6, 6]
+    assert repo.succeeded is True
+    assert repo.failed is None
 
 
 @pytest.mark.skipif(not EVENT_LOOP_AVAILABLE, reason="Event loop creation is blocked in this environment")

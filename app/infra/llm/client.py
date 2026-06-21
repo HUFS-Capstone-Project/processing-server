@@ -91,7 +91,7 @@ def build_extraction_system_prompt(max_candidates: int) -> str:
     )
 
 
-EXTRACTION_SYSTEM_PROMPT = build_extraction_system_prompt(12)
+EXTRACTION_SYSTEM_PROMPT = build_extraction_system_prompt(40)
 
 
 class HFExtractionError(Exception):

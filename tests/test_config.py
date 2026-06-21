@@ -90,8 +90,9 @@ def test_instagram_image_fetch_and_hf_ocr_defaults_are_separate_from_caption_ext
     settings = Settings()
 
     assert settings.instagram_image_fetch_timeout_ms == 8000
-    assert settings.instagram_image_fetch_max_images == 10
-    assert settings.instagram_image_fetch_max_next_clicks == 10
+    assert settings.instagram_image_fetch_max_images == 20
+    assert settings.instagram_image_fetch_max_next_clicks == 20
+    assert settings.extraction_max_candidates == 40
     assert settings.hf_ocr_endpoint_url == ""
     assert settings.hf_ocr_api_token == ""
     assert settings.hf_ocr_model_name == "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"

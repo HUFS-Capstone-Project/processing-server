@@ -176,13 +176,13 @@ async def get_job_result(
             detail={"code": "JOB_NOT_FOUND", "message": "Job not found."},
         )
 
-    if job.status in {JobStatus.QUEUED, JobStatus.PROCESSING}:
+    result = await repository.get_job_result(jobId)
+    if job.status in {JobStatus.QUEUED, JobStatus.PROCESSING} and not result:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "RESULT_NOT_READY", "message": f"Job is currently {job.status.value}."},
         )
 
-    result = await repository.get_job_result(jobId)
     content = await repository.get_crawled_content(jobId)
     link_stats = await repository.get_link_stats(jobId)
 

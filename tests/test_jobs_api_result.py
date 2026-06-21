@@ -44,7 +44,7 @@ class FakeJobService:
 class FakeJobRepository:
     def __init__(
         self,
-        result: JobResultRecord,
+        result: JobResultRecord | None,
         content: CrawledContentRecord | None = None,
         link_stats: LinkStatsRecord | None = None,
     ) -> None:
@@ -53,7 +53,7 @@ class FakeJobRepository:
         self.link_stats = link_stats
 
     async def get_job_result(self, job_id: UUID) -> JobResultRecord | None:
-        return self.result if job_id == self.result.job_id else None
+        return self.result if self.result and job_id == self.result.job_id else None
 
     async def get_crawled_content(self, job_id: UUID) -> CrawledContentRecord | None:
         return self.content if self.content and job_id == self.content.job_id else None
@@ -81,7 +81,7 @@ class SkippingTestClient:
 
 def _client(
     job: JobRecord,
-    result: JobResultRecord,
+    result: JobResultRecord | None,
     content: CrawledContentRecord | None = None,
     link_stats: LinkStatsRecord | None = None,
 ) -> SkippingTestClient:
@@ -254,6 +254,65 @@ def test_get_job_result_returns_public_contract_only() -> None:
     assert "category_group_name" not in payload["resolved_places"][0]
     assert "x" not in payload["resolved_places"][0]
     assert "y" not in payload["resolved_places"][0]
+
+
+def test_get_job_result_returns_partial_result_while_processing() -> None:
+    now = datetime.now(timezone.utc)
+    job_id = uuid4()
+    place_result = {
+        "kakao_place_id": "123",
+        "place_name": "Partial Cafe",
+        "address_name": "Seoul Mapo-gu",
+        "road_address_name": "Seoul Mapo-gu Road 1",
+        "x": "126.92",
+        "y": "37.55",
+        "place_url": "https://place.map.kakao.com/123",
+    }
+    job = JobRecord(
+        job_id=job_id,
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/p/example/",
+        canonical_url="https://www.instagram.com/p/example/",
+        status=JobStatus.PROCESSING,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    result = JobResultRecord(
+        job_id=job_id,
+        extraction_result=None,
+        place_candidates=[place_result],
+        resolved_places=[place_result],
+        created_at=now,
+        updated_at=now,
+    )
+
+    response = _client(job, result).get(f"/jobs/{job_id}/result", headers=_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "PROCESSING"
+    assert payload["resolved_places"][0]["place_name"] == "Partial Cafe"
+
+
+def test_get_job_result_still_conflicts_while_processing_without_result() -> None:
+    now = datetime.now(timezone.utc)
+    job_id = uuid4()
+    job = JobRecord(
+        job_id=job_id,
+        room_id=uuid4(),
+        original_url="https://www.instagram.com/p/example/",
+        canonical_url="https://www.instagram.com/p/example/",
+        status=JobStatus.PROCESSING,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    response = _client(job, None).get(f"/jobs/{job_id}/result", headers=_headers())
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "RESULT_NOT_READY"
 
 
 def test_get_job_debug_result_returns_internal_fields() -> None:

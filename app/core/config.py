@@ -102,8 +102,8 @@ class Settings(BaseSettings):
     instagram_http_meta_timeout_seconds: int = 10
     instagram_block_resource_types: str = "image,font,media"
     instagram_image_fetch_timeout_ms: int = 8000
-    instagram_image_fetch_max_images: int = 10
-    instagram_image_fetch_max_next_clicks: int = 10
+    instagram_image_fetch_max_images: int = 20
+    instagram_image_fetch_max_next_clicks: int = 20
     instagram_rate_limit_cooldown_seconds: int = 1800
     instagram_cooldown_key: str = "processing:cooldown:instagram"
 
@@ -124,7 +124,7 @@ class Settings(BaseSettings):
     playwright_disable_dev_shm_usage: bool = True
 
     # TODO(next stage): enable when embedding-based candidate extraction is implemented.
-    extraction_max_candidates: int = 12
+    extraction_max_candidates: int = 40
     extraction_max_sentence_length: int = 280
 
     # TODO(next stage): enable when Kakao Local enrichment is implemented.
